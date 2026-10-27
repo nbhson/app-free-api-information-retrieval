@@ -22,6 +22,21 @@ jobs:
       - name: Run ruff format check
         run: ruff format --check src/ tests/
 
+  typecheck:
+    name: Type Check (mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install mypy pydantic pydantic-settings types-PyYAML click
+      - name: Run mypy
+        run: mypy src/
+
   test:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -35,9 +50,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
       - name: Run tests with coverage
-        run: pytest tests/ --cov=src --cov-report=term-missing --cov-fail-under=85
+        run: pytest tests/ --cov=src --cov-report=term-missing --cov-fail-under=90
       - name: Upload coverage to artifact
         uses: actions/upload-artifact@v4
         if: matrix.python-version == '3.12'
@@ -60,3 +77,19 @@ jobs:
         run: python run.py list
       - name: CLI list --format json works
         run: python run.py list --format json > /dev/null
+      - name: CLI --version works
+        run: python run.py --version
+      - name: CLI health works
+        run: python run.py health
+
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t free-llm-provider-discovery:ci .
+      - name: Smoke test in container
+        run: |
+          docker run --rm free-llm-provider-discovery:ci list
+          docker run --rm free-llm-provider-discovery:ci --version

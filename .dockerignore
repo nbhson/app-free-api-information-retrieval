@@ -1,0 +1,43 @@
+# Build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Test & cache
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Git
+.git/
+.gitignore
+.github/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Env (KHÔNG đưa API key vào image)
+.env
+
+# Docs & plan (không cần trong image)
+plan/
+*.md
+!README.md
+
+# Data local
+data/*.json
+
+# Pre-commit
+.pre-commit-config.yaml

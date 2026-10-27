@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -23,13 +24,13 @@ def aggregate_providers(providers: list[Provider]) -> ProviderList:
     )
 
 
-def _filter_free_models(entry: dict) -> dict:
-    """Trả về entry với chỉ models free (nếu chỉ_free). Helper dùng chung JSON/YAML."""
+def _filter_free_models(entry: dict[str, Any]) -> dict[str, Any]:
+    """Trả về entry với chỉ models free. Helper dùng chung JSON/YAML."""
     entry["models"] = [m for m in entry["models"] if m["is_free"]]
     return entry
 
 
-def _save_payload(payload: dict, path: Path, as_yaml: bool) -> Path:
+def _save_payload(payload: dict[str, Any], path: Path, as_yaml: bool) -> Path:
     """Ghi payload ra file, tạo parent dir nếu cần."""
     path.parent.mkdir(parents=True, exist_ok=True)
     if as_yaml:
@@ -41,14 +42,14 @@ def _save_payload(payload: dict, path: Path, as_yaml: bool) -> Path:
 
 def save_to_json(provider_list: ProviderList, path: str, only_free: bool = True) -> str:
     """Lưu danh sách provider ra file JSON"""
-    payload = {
+    payload: dict[str, Any] = {
         "version": provider_list.version,
         "last_updated": provider_list.last_updated.isoformat(),
         "total_count": len(provider_list.providers),
         "providers": [],
     }
     for prov in provider_list.providers:
-        entry = prov.model_dump(mode="json")
+        entry: dict[str, Any] = prov.model_dump(mode="json")
         if only_free:
             entry = _filter_free_models(entry)
         payload["providers"].append(entry)
@@ -58,12 +59,12 @@ def save_to_json(provider_list: ProviderList, path: str, only_free: bool = True)
 
 def save_to_yaml(provider_list: ProviderList, path: str, only_free: bool = True) -> str:
     """Lưu danh sách provider ra file YAML"""
-    data = {
+    data: dict[str, Any] = {
         "version": provider_list.version,
         "providers": [],
     }
     for prov in provider_list.providers:
-        entry = prov.model_dump(mode="json")
+        entry: dict[str, Any] = prov.model_dump(mode="json")
         if only_free:
             entry = _filter_free_models(entry)
         data["providers"].append(entry)

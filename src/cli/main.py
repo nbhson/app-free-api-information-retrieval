@@ -7,6 +7,7 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import click
 from rich import box
@@ -278,7 +279,7 @@ def discover_live_cmd(output, show_all_models):
 @click.option("--output", "-o", type=str, default=None, help="Lưu JSON ra file")
 def health(output):
     """Kiểm tra nhanh sức khoẻ của hệ thống (registry + config)."""
-    results = {
+    results: dict[str, Any] = {
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "registry": {
