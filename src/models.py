@@ -70,8 +70,3 @@ class ProviderList(BaseModel):
 
     def model_post_init(self, __context):
         self.total_count = len(self.providers)
-
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
