@@ -80,9 +80,7 @@ def fetch_openrouter_free_models(
             try:
                 return _parse_free_models(data)
             except (AttributeError, TypeError) as e:
-                raise LiveDiscoveryError(
-                    f"Response của OpenRouter không đúng cấu trúc: {e}"
-                ) from e
+                raise LiveDiscoveryError(f"Response của OpenRouter không đúng cấu trúc: {e}") from e
         except LiveDiscoveryError:
             # Schema lỗi là lỗi vĩnh viễn — không retry
             raise
@@ -92,9 +90,7 @@ def fetch_openrouter_free_models(
             status = e.response.status_code
             if status in RETRYABLE_STATUS_CODES and attempt < retries:
                 last_error = f"HTTP {status} từ {base_url} (lỗi tạm thời)"
-                console.print(
-                    f"[yellow]⚠ Lần {attempt + 1} lỗi: {last_error}. Thử lại...[/yellow]"
-                )
+                console.print(f"[yellow]⚠ Lần {attempt + 1} lỗi: {last_error}. Thử lại...[/yellow]")
                 time.sleep(RETRY_BACKOFF_BASE * (2**attempt))
                 continue
             raise LiveDiscoveryError(f"HTTP {status} từ {base_url}") from e
