@@ -3,16 +3,15 @@ Aggregator - Tổng hợp danh sách provider và xuất ra file
 """
 
 import json
-from pathlib import Path
 from datetime import datetime, timezone
-from typing import List, Optional
+from pathlib import Path
 
 import yaml
 
 from src.models import Provider, ProviderList
 
 
-def aggregate_providers(providers: List[Provider]) -> ProviderList:
+def aggregate_providers(providers: list[Provider]) -> ProviderList:
     """Tổng hợp danh sách provider thành ProviderList"""
     return ProviderList(
         providers=providers,

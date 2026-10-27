@@ -1,8 +1,14 @@
 """Tests cho src.models."""
-from datetime import datetime, timezone
+
+from datetime import datetime
 
 from src.models import (
-    Model, Provider, ProviderList, ProviderStatus, AuthType, APIStyle,
+    APIStyle,
+    AuthType,
+    Model,
+    Provider,
+    ProviderList,
+    ProviderStatus,
 )
 
 

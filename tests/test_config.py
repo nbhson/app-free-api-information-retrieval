@@ -1,4 +1,5 @@
 """Tests cho src.config."""
+
 import pytest
 from pydantic import ValidationError
 
@@ -33,9 +34,7 @@ class TestAIConfig:
         assert len(errors) == 2  # base_url + api_key (model được set nên không lỗi)
 
     def test_validate_ok_when_configured(self):
-        cfg = AIConfig(
-            AI_PROVIDER_BASE_URL="https://x.com/v1", AI_API_KEY="k", AI_MODEL="m"
-        )
+        cfg = AIConfig(AI_PROVIDER_BASE_URL="https://x.com/v1", AI_API_KEY="k", AI_MODEL="m")
         assert cfg.validate() == []
 
 

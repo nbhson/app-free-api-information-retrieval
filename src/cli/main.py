@@ -5,24 +5,22 @@ Main CLI entry point
 import asyncio
 import json
 import sys
-from pathlib import Path
 
 import click
+from rich import box
 from rich.console import Console
 from rich.table import Table
-from rich.panel import Panel
-from rich import box
 
-from src.config import get_ai_config
-from src.models import ProviderList, ProviderStatus
-from src.discovery import KNOWN_PROVIDERS, get_provider_by_name
-from src.discovery.ai_agent import discover_with_ai, AIDiscoveryError
-from src.verification.checker import verify_all_providers, verify_provider
 from src.aggregation.aggregator import (
     aggregate_providers,
     save_to_json,
     save_to_yaml,
 )
+from src.config import get_ai_config
+from src.discovery import KNOWN_PROVIDERS, get_provider_by_name
+from src.discovery.ai_agent import AIDiscoveryError, discover_with_ai
+from src.models import ProviderStatus
+from src.verification.checker import verify_all_providers, verify_provider
 
 console = Console()
 
@@ -74,12 +72,19 @@ def cli():
 
 
 @cli.command()
-@click.option("--format", "fmt", type=click.Choice(["table", "json", "yaml"]),
-              default="table", help="Định dạng đầu ra")
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["table", "json", "yaml"]),
+    default="table",
+    help="Định dạng đầu ra",
+)
 @click.option("--output", "-o", type=str, default=None, help="Đường dẫn file xuất dữ liệu")
 @click.option("--verify", is_flag=True, default=False, help="Kiểm tra trạng thái endpoint")
 @click.option("--show-all-models", is_flag=True, default=False, help="Hiển thị tất cả model")
-@click.option("--tag", "-t", multiple=True, help="Lọc theo tag (vd: --tag free-tier --tag openai-compatible)")
+@click.option(
+    "--tag", "-t", multiple=True, help="Lọc theo tag (vd: --tag free-tier --tag openai-compatible)"
+)
 @click.option("--no-auth", is_flag=True, default=False, help="Chỉ hiện provider không cần API key")
 def list_cmd(fmt, output, verify, show_all_models, tag, no_auth):
     """Liệt kê tất cả provider đã biết."""
@@ -107,15 +112,20 @@ def list_cmd(fmt, output, verify, show_all_models, tag, no_auth):
         console.print(f"[green]✓[/green] Đã lưu vào [bold]{path}[/bold]")
 
     if fmt == "json":
-        click.echo(json.dumps(
-            [p.model_dump(mode="json") for p in providers],
-            indent=2, ensure_ascii=False))
+        click.echo(
+            json.dumps([p.model_dump(mode="json") for p in providers], indent=2, ensure_ascii=False)
+        )
         return
     if fmt == "yaml":
         import yaml
-        click.echo(yaml.dump(
-            {"providers": [p.model_dump(mode="json") for p in providers]},
-            allow_unicode=True, sort_keys=False))
+
+        click.echo(
+            yaml.dump(
+                {"providers": [p.model_dump(mode="json") for p in providers]},
+                allow_unicode=True,
+                sort_keys=False,
+            )
+        )
         return
 
     _print_provider_table(providers, show_all_models=show_all_models)
@@ -128,7 +138,9 @@ def check(provider):
     p = get_provider_by_name(provider)
     if p is None:
         console.print(f"[red]✗[/red] Không tìm thấy provider '{provider}'.")
-        console.print(f"[dim]Các provider khả dụng: {', '.join(x.name for x in KNOWN_PROVIDERS)}[/dim]")
+        console.print(
+            f"[dim]Các provider khả dụng: {', '.join(x.name for x in KNOWN_PROVIDERS)}[/dim]"
+        )
         sys.exit(1)
 
     console.print(f"[dim]Đang kiểm tra {p.name} ({p.base_url})...[/dim]")
@@ -141,8 +153,9 @@ def check(provider):
 
 
 @cli.command()
-@click.option("--output", "-o", type=str, default="data/providers.json",
-              help="Đường dẫn file xuất dữ liệu")
+@click.option(
+    "--output", "-o", type=str, default="data/providers.json", help="Đường dẫn file xuất dữ liệu"
+)
 def update(output):
     """Kiểm tra tất cả provider và cập nhật file dữ liệu."""
     console.print("[dim]Đang kiểm tra tất cả provider...[/dim]")
@@ -156,10 +169,10 @@ def update(output):
 
 
 @cli.command("discover-ai")
-@click.option("--output", "-o", type=str, default=None,
-              help="Lưu kết quả ra file JSON")
-@click.option("--verify", is_flag=True, default=False,
-              help="Kiểm tra trạng thái các provider AI tìm thấy")
+@click.option("--output", "-o", type=str, default=None, help="Lưu kết quả ra file JSON")
+@click.option(
+    "--verify", is_flag=True, default=False, help="Kiểm tra trạng thái các provider AI tìm thấy"
+)
 @click.option("--show", is_flag=True, default=True, help="Hiển thị kết quả ra màn hình")
 def discover_ai(output, verify, show):
     """Dùng AI (.env config) để tìm kiếm provider miễn phí mới."""

@@ -5,8 +5,9 @@ Có concurrency limit (semaphore) và retry với exponential backoff.
 """
 
 import asyncio
-import httpx
 from datetime import datetime, timezone
+
+import httpx
 
 from src.models import Provider, ProviderStatus
 
@@ -30,14 +31,14 @@ def _models_url(base_url: str) -> str:
     return base_url
 
 
-async def verify_provider(provider: Provider, timeout: float = 10.0,
-                          retries: int = MAX_RETRIES) -> Provider:
+async def verify_provider(
+    provider: Provider, timeout: float = 10.0, retries: int = MAX_RETRIES
+) -> Provider:
     """
     Kiểm tra một provider có hoạt động không.
     Gửi GET request nhẹ tới {base_url}/models, retry khi lỗi tạm thời.
     """
     url = _models_url(provider.base_url)
-    last_exc: Exception | None = None
 
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         for attempt in range(retries + 1):
@@ -57,11 +58,10 @@ async def verify_provider(provider: Provider, timeout: float = 10.0,
                 provider.last_verified = datetime.now(timezone.utc)
                 return provider
 
-            except (httpx.ConnectError, httpx.TimeoutException) as exc:
-                last_exc = exc
+            except (httpx.ConnectError, httpx.TimeoutException):
                 if attempt < retries:
                     # Exponential backoff, không chiếm semaphore khi chờ
-                    await asyncio.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
+                    await asyncio.sleep(RETRY_BACKOFF_BASE * (2**attempt))
 
             except Exception:
                 provider.status = ProviderStatus.UNKNOWN

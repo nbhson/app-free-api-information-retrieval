@@ -1,4 +1,5 @@
 """Tests cho CLI (click.testing.CliRunner, mock network)."""
+
 import json
 
 import pytest

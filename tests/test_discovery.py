@@ -1,9 +1,10 @@
 """Tests cho src.discovery registry."""
-import pytest
 
 from src.discovery import (
-    KNOWN_PROVIDERS, PROVIDER_REGISTRY,
-    get_provider_by_name, get_providers_by_tag, get_providers_no_auth,
+    KNOWN_PROVIDERS,
+    get_provider_by_name,
+    get_providers_by_tag,
+    get_providers_no_auth,
 )
 
 

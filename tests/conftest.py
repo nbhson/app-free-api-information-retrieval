@@ -1,6 +1,8 @@
 """Shared pytest fixtures."""
+
 import pytest
-from src.models import Provider, Model, ProviderStatus, AuthType, APIStyle
+
+from src.models import APIStyle, AuthType, Provider, ProviderStatus
 
 
 @pytest.fixture

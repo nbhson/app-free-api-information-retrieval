@@ -1,4 +1,5 @@
 """Tests cho src.discovery.ai_agent (mock HTTP)."""
+
 import json
 
 import httpx
@@ -7,9 +8,11 @@ import pytest
 from src.config import AIConfig
 from src.discovery import ai_agent
 from src.discovery.ai_agent import (
-    discover_with_ai, _extract_json, _parse_providers, AIDiscoveryError,
+    AIDiscoveryError,
+    _extract_json,
+    _parse_providers,
+    discover_with_ai,
 )
-
 
 VALID_RESPONSE = {
     "providers": [
@@ -90,6 +93,7 @@ class TestDiscoverWithAI:
     def test_raises_on_401(self, monkeypatch):
         def fake_post(url, **kw):
             return httpx.Response(401, request=httpx.Request("POST", url))
+
         monkeypatch.setattr(ai_agent.httpx, "post", fake_post)
         with pytest.raises(AIDiscoveryError, match="401"):
             discover_with_ai(config=_make_config())
@@ -97,9 +101,12 @@ class TestDiscoverWithAI:
     def test_success_returns_providers(self, monkeypatch):
         def fake_post(url, **kw):
             content = json.dumps(VALID_RESPONSE)
-            return httpx.Response(200, json={
-                "choices": [{"message": {"content": content}}]
-            }, request=httpx.Request("POST", url))
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": content}}]},
+                request=httpx.Request("POST", url),
+            )
+
         monkeypatch.setattr(ai_agent.httpx, "post", fake_post)
         providers = discover_with_ai(config=_make_config())
         assert len(providers) == 1

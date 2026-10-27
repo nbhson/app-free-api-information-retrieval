@@ -27,5 +27,10 @@ def get_providers_no_auth():
     return [p for p in KNOWN_PROVIDERS if not p.auth_required]
 
 
-__all__ = ["KNOWN_PROVIDERS", "PROVIDER_REGISTRY", "get_provider_by_name",
-           "get_providers_by_tag", "get_providers_no_auth"]
+__all__ = [
+    "KNOWN_PROVIDERS",
+    "PROVIDER_REGISTRY",
+    "get_provider_by_name",
+    "get_providers_by_tag",
+    "get_providers_no_auth",
+]

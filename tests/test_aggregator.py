@@ -1,10 +1,9 @@
 """Tests cho src.aggregation.aggregator (không gọi mạng)."""
-import json
-import tempfile
-from pathlib import Path
 
-from src.models import Model, Provider, ProviderStatus, AuthType, APIStyle
+import json
+
 from src.aggregation import aggregator
+from src.models import APIStyle, AuthType, Model, Provider, ProviderStatus
 
 
 def _minimal_provider() -> Provider:
@@ -35,9 +34,7 @@ class TestAggregate:
 class TestSaveJson:
     def test_saves_free_models_only(self, tmp_path):
         p = _minimal_provider()
-        p.models.append(
-            Model(id="paid-m", name="Paid M", is_free=False)
-        )
+        p.models.append(Model(id="paid-m", name="Paid M", is_free=False))
         pl = aggregator.aggregate_providers([p])
         path = tmp_path / "out.json"
         aggregator.save_to_json(pl, str(path))

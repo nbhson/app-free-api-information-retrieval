@@ -4,13 +4,12 @@ AI Discovery Agent - Dùng LLM để tìm kiếm provider LLM miễn phí mới
 
 import json
 import re
-from typing import List
 
 import httpx
 from rich.console import Console
 
-from src.config import get_ai_config, AIConfig
-from src.models import Provider, Model, ProviderStatus, AuthType, APIStyle
+from src.config import AIConfig, get_ai_config
+from src.models import APIStyle, AuthType, Model, Provider, ProviderStatus
 
 console = Console()
 
@@ -64,24 +63,26 @@ def _extract_json(text: str) -> dict:
         elif text[i] == "}":
             depth -= 1
             if depth == 0:
-                return json.loads(text[brace_start:i + 1])
+                return json.loads(text[brace_start : i + 1])
 
     raise ValueError("JSON không hợp lệ (thiếu dấu đóng)")
 
 
-def _parse_providers(data: dict) -> List[Provider]:
+def _parse_providers(data: dict) -> list[Provider]:
     """Mapping JSON từ AI sang list Provider."""
     providers = []
     for entry in data.get("providers", []):
         try:
             models = []
             for m in entry.get("free_models", []):
-                models.append(Model(
-                    id=m.get("id", "unknown"),
-                    name=m.get("name", m.get("id", "unknown")),
-                    is_free=True,
-                    context_length=m.get("context_length"),
-                ))
+                models.append(
+                    Model(
+                        id=m.get("id", "unknown"),
+                        name=m.get("name", m.get("id", "unknown")),
+                        is_free=True,
+                        context_length=m.get("context_length"),
+                    )
+                )
 
             api_style_raw = str(entry.get("api_style", "openai")).lower()
             try:
@@ -95,19 +96,21 @@ def _parse_providers(data: dict) -> List[Provider]:
             else:
                 auth_required = bool(auth_raw)
 
-            providers.append(Provider(
-                name=entry.get("name", "Unknown"),
-                base_url=str(entry.get("base_url", "")).rstrip("/"),
-                website=entry.get("website"),
-                description=entry.get("description"),
-                models=models,
-                status=ProviderStatus.UNKNOWN,
-                auth_type=AuthType.NONE if not auth_required else AuthType.API_KEY,
-                api_style=api_style,
-                auth_required=auth_required,
-                rate_limit=entry.get("rate_limit"),
-                tags=list(entry.get("tags", [])) + ["ai-discovered"],
-            ))
+            providers.append(
+                Provider(
+                    name=entry.get("name", "Unknown"),
+                    base_url=str(entry.get("base_url", "")).rstrip("/"),
+                    website=entry.get("website"),
+                    description=entry.get("description"),
+                    models=models,
+                    status=ProviderStatus.UNKNOWN,
+                    auth_type=AuthType.NONE if not auth_required else AuthType.API_KEY,
+                    api_style=api_style,
+                    auth_required=auth_required,
+                    rate_limit=entry.get("rate_limit"),
+                    tags=list(entry.get("tags", [])) + ["ai-discovered"],
+                )
+            )
         except Exception as e:
             console.print(f"[yellow]⚠ Bỏ qua entry lỗi: {e}[/yellow]")
     return providers
@@ -117,7 +120,7 @@ class AIDiscoveryError(Exception):
     """Lỗi khi chạy AI discovery."""
 
 
-def discover_with_ai(config: AIConfig | None = None, max_retries: int = 2) -> List[Provider]:
+def discover_with_ai(config: AIConfig | None = None, max_retries: int = 2) -> list[Provider]:
     """
     Gọi LLM để tìm kiếm provider miễn phí mới.
 
@@ -128,8 +131,7 @@ def discover_with_ai(config: AIConfig | None = None, max_retries: int = 2) -> Li
     errors = config.validate()
     if errors:
         raise AIDiscoveryError(
-            "Chưa cấu hình AI provider. Tạo file .env từ .env.example:\n  "
-            + "\n  ".join(errors)
+            "Chưa cấu hình AI provider. Tạo file .env từ .env.example:\n  " + "\n  ".join(errors)
         )
 
     base_url = config.base_url.rstrip("/")
@@ -143,9 +145,11 @@ def discover_with_ai(config: AIConfig | None = None, max_retries: int = 2) -> Li
         "model": config.model,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content":
-                "Hãy liệt kê các LLM API provider miễn phí hiện có trên internet. "
-                "Chỉ trả về JSON theo schema đã cho."},
+            {
+                "role": "user",
+                "content": "Hãy liệt kê các LLM API provider miễn phí hiện có trên internet. "
+                "Chỉ trả về JSON theo schema đã cho.",
+            },
         ],
         "temperature": 0.2,
     }
@@ -153,8 +157,7 @@ def discover_with_ai(config: AIConfig | None = None, max_retries: int = 2) -> Li
     last_error = None
     for attempt in range(max_retries + 1):
         try:
-            resp = httpx.post(url, headers=headers, json=payload,
-                              timeout=config.timeout)
+            resp = httpx.post(url, headers=headers, json=payload, timeout=config.timeout)
             if resp.status_code == 401:
                 raise AIDiscoveryError("API key sai hoặc hết hạn (HTTP 401)")
             if resp.status_code == 403:
