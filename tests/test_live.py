@@ -1,5 +1,6 @@
 """Tests cho src.discover.live (mock HTTP)."""
 
+import httpx
 import pytest
 
 from src.discovery.live import (
@@ -239,3 +240,82 @@ class TestDiscoverLive:
         monkeypatch.setattr("httpx.get", lambda url, **kw: FakeResponse())
         with pytest.raises(LiveDiscoveryError, match="không trả về model free"):
             discover_live()
+
+
+class TestFetchRetry:
+    """Retry logic của live discovery (plan item N4)."""
+
+    def test_retries_on_503_then_raises(self, monkeypatch):
+        calls_count = {"n": 0}
+
+        class ErrorResponse:
+            status_code = 503
+
+            def raise_for_status(self):
+                resp = httpx.Response(503, request=httpx.Request("GET", "https://x.com"))
+                raise httpx.HTTPStatusError("err", request=resp.request, response=resp)
+
+        def fake_get(url, **kw):
+            calls_count["n"] += 1
+            return ErrorResponse()
+
+        monkeypatch.setattr("httpx.get", fake_get)
+        monkeypatch.setattr("src.discovery.live.time.sleep", lambda s: None)
+        with pytest.raises(LiveDiscoveryError, match="503"):
+            fetch_openrouter_free_models(timeout=1.0, retries=1)
+        assert calls_count["n"] == 2  # 1 lần + 1 retry
+
+    def test_recovers_on_503(self, monkeypatch):
+        """503 lần đầu, 200 lần sau → trả về models (retry có tác dụng)."""
+        calls_count = {"n": 0}
+
+        class OkResponse:
+            status_code = 200
+
+            def json(self):
+                return {
+                    "data": [
+                        {"id": "m1", "name": "M1", "pricing": {"prompt": "0", "completion": "0"}}
+                    ]
+                }
+
+            def raise_for_status(self):
+                pass
+
+        class ErrorResponse:
+            status_code = 503
+
+            def raise_for_status(self):
+                resp = httpx.Response(503, request=httpx.Request("GET", "https://x.com"))
+                raise httpx.HTTPStatusError("err", request=resp.request, response=resp)
+
+        def fake_get(url, **kw):
+            calls_count["n"] += 1
+            if calls_count["n"] == 1:
+                return ErrorResponse()
+            return OkResponse()
+
+        monkeypatch.setattr("httpx.get", fake_get)
+        monkeypatch.setattr("src.discovery.live.time.sleep", lambda s: None)
+        models = fetch_openrouter_free_models(timeout=1.0)
+        assert len(models) == 1
+
+    def test_502_raises_immediately_when_not_retryable(self, monkeypatch):
+        """404 (không thuộc retryable) → raise ngay, không retry."""
+        calls_count = {"n": 0}
+
+        class ErrorResponse:
+            status_code = 404
+
+            def raise_for_status(self):
+                resp = httpx.Response(404, request=httpx.Request("GET", "https://x.com"))
+                raise httpx.HTTPStatusError("err", request=resp.request, response=resp)
+
+        def fake_get(url, **kw):
+            calls_count["n"] += 1
+            return ErrorResponse()
+
+        monkeypatch.setattr("httpx.get", fake_get)
+        with pytest.raises(LiveDiscoveryError, match="404"):
+            fetch_openrouter_free_models(timeout=1.0, retries=2)
+        assert calls_count["n"] == 1  # không retry
