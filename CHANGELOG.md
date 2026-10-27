@@ -4,6 +4,15 @@ Tất cả thay đổi quan trọng của project được ghi nhận trong file
 Format dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning theo [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] — 2026-10-28
+
+### Added
+- **Live Discovery (`discover-live`)**: query dữ liệu internet THẬT từ OpenRouter `/models`
+  API (public, không cần API key) → trả về danh sách model free thật tại thời điểm gọi,
+  dựa trên pricing thực tế (`prompt=0` và `completion=0`). Không phụ thuộc trí nhớ LLM
+  hay registry cứng — luôn là trạng thái mới nhất của internet.
+- Module mới `src/discovery/live.py` (100% test coverage)
+
 ## [1.1.0] — 2026-10-27
 
 ### Added

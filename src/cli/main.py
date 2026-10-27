@@ -21,6 +21,7 @@ from src.aggregation.aggregator import (
 from src.config import get_ai_config
 from src.discovery import KNOWN_PROVIDERS, get_provider_by_name, get_providers_by_tag
 from src.discovery.ai_agent import AIDiscoveryError, discover_with_ai
+from src.discovery.live import LiveDiscoveryError, discover_live
 from src.logging_config import get_logger, setup_logging
 from src.models import ProviderStatus
 from src.verification.checker import verify_all_providers, verify_provider
@@ -238,6 +239,40 @@ def discover_ai(output, verify, show):
         console.print("[yellow]⚠ AI không trả về provider hợp lệ nào.[/yellow]")
 
 
+@cli.command("discover-live")
+@click.option("--output", "-o", type=str, default=None, help="Lưu kết quả ra file JSON")
+@click.option("--show-all-models", is_flag=True, default=False, help="Hiển thị tất cả model")
+def discover_live_cmd(output, show_all_models):
+    """Tìm model free THẬT từ internet (OpenRouter API, không cần API key).
+
+    Khác với discover-ai (dựa vào trí nhớ LLM), lệnh này query trực tiếp
+    OpenRouter /models API — dữ liệu là trạng thái thật tại thời điểm gọi.
+    """
+    try:
+        console.print("[dim]Đang query OpenRouter /models (live, không cần key)...[/dim]")
+        p = discover_live()
+    except LiveDiscoveryError as e:
+        console.print(f"[red]✗ Lỗi live discovery:[/red]\n{e}")
+        sys.exit(1)
+
+    free = p.get_free_models()
+    console.print(
+        f"\n[green]✓[/green] Live discovery tìm thấy [bold]{len(free)}[/bold] "
+        f"model free thật (dữ liệu internet, lúc "
+        f"{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC):\n"
+    )
+
+    _print_provider_table([p], show_all_models=show_all_models)
+
+    if output:
+        provider_list = aggregate_providers([p])
+        if output.endswith((".yaml", ".yml")):
+            path = save_to_yaml(provider_list, output)
+        else:
+            path = save_to_json(provider_list, output)
+        console.print(f"[green]✓[/green] Đã lưu vào [bold]{path}[/bold]")
+
+
 @cli.command("health")
 @click.option("--output", "-o", type=str, default=None, help="Lưu JSON ra file")
 def health(output):
@@ -255,7 +290,7 @@ def health(output):
             ),
         },
         "ai_configured": get_ai_config().is_configured(),
-        "version": "1.1.0",
+        "version": "1.2.0",
     }
 
     # Check xem có provider nào chưa verify không

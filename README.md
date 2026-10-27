@@ -97,6 +97,36 @@ AI_TIMEOUT=60
 AI sẽ trả về JSON đúng schema Provider, tự động được parse vào pipeline
 verification/aggregation hiện có. Provider tìm bởi AI được tag `ai-discovered`.
 
+> ⚠️ **Lưu ý**: `discover-ai` dựa vào trí nhớ của LLM (training data), KHÔNG
+> truy cập internet thật. Kết quả cần verify. Muốn dữ liệu internet thật →
+> dùng `discover-live` bên dưới.
+
+## 🌐 Live Discovery (dữ liệu internet THẬT)
+
+Lệnh `discover-live` query trực tiếp **OpenRouter `/models` API** (public,
+không cần API key) và lọc model có pricing thật = $0. Đây là dữ liệu
+**trạng thái thực tế tại thời điểm gọi** — không phải trí nhớ LLM hay
+registry cứng:
+
+```bash
+# Tìm model free thật từ internet (không cần API key, không cần .env)
+./venv/bin/python run.py discover-live
+
+# Lưu snapshot hiện tại ra file
+./venv/bin/python run.py discover-live --output data/live_free.json
+
+# Hiển thị tất cả model free tìm thấy
+./venv/bin/python run.py discover-live --show-all-models
+```
+
+So sánh 3 chế độ discovery:
+
+| Chế độ | Nguồn dữ liệu | Cần key | Độ tươi |
+|---|---|---|---|
+| `list` | Registry cứng trong code | ❌ | Cũ nhất (theo lần curate) |
+| `discover-ai` | Trí nhớ của LLM | ✅ (AI key) | Cũ (training data) |
+| `discover-live` | **OpenRouter API trực tiếp** | ❌ | **Mới nhất** ✅ |
+
 ## Cấu trúc project
 
 ```
@@ -108,13 +138,14 @@ src/
 │   ├── __init__.py              # Gộp registry + helpers
 │   ├── providers_part1.py       # Providers phổ biến (OpenRouter, Groq, ...)
 │   ├── providers_part2.py       # Providers bổ sung + new: Ollama, GigaChat, Yandex
-│   └── ai_agent.py              # AI Discovery Agent (gọi LLM tìm provider mới)
+│   ├── ai_agent.py              # AI Discovery Agent (gọi LLM tìm provider mới)
+│   └── live.py                  # Live Discovery (query OpenRouter API thật)
 ├── verification/
 │   └── checker.py               # Async endpoint checker (returns copies, local semaphore)
 ├── aggregation/
 │   └── aggregator.py            # Xuất JSON/YAML
 └── cli/
-    └── main.py                  # Click CLI: list / check / update / discover-ai / health
+    └── main.py                  # Click CLI: list / check / update / discover-ai / discover-live / health
 ```
 
 ## Provider hiện có (15)
@@ -156,7 +187,7 @@ theo format `Provider(...)`. Sau đó chạy `update` để verify.
 # Cài dev dependencies (pytest, ruff, ...)
 pip install -r requirements-dev.txt
 
-# Chạy test suite (73 tests)
+# Chạy test suite (103 tests)
 ./venv/bin/python -m pytest tests/ --cov=src
 
 # Lint + format

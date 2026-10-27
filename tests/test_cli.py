@@ -138,7 +138,6 @@ class TestCheckExitCodes:
 
     def test_check_exit_1_on_inactive(self, runner, monkeypatch):
         import src.cli.main as m
-        from src.models import Provider
 
         async def fake_inactive(prov, **kw):
             result = prov.model_copy(deep=True)
@@ -172,7 +171,6 @@ class TestListVerifyExitCode:
         import src.cli.main as m
 
         async def fake_some_inactive(provs):
-            from src.models import Provider
             result = []
             for p in provs:
                 cp = p.model_copy(deep=True)
@@ -218,3 +216,49 @@ class TestVerboseFlag:
     def test_list_verbose_short_flag(self, runner):
         result = runner.invoke(cli, ["list", "-v"])
         assert result.exit_code == 0
+
+
+class TestDiscoverLiveCommand:
+    @pytest.fixture
+    def mock_live(self, monkeypatch):
+        """Mock discover_live để không gọi mạng thật."""
+        import src.cli.main as m
+        from src.discovery.live import build_openrouter_live_provider
+        from src.models import Model
+
+        def fake_discover_live():
+            models = [
+                Model(id="meta-llama/llama-3.1-8b:free", name="Llama 3.1 8B", is_free=True),
+                Model(id="mistralai/mistral-7b:free", name="Mistral 7B", is_free=True),
+            ]
+            return build_openrouter_live_provider(models)
+
+        monkeypatch.setattr(m, "discover_live", fake_discover_live)
+
+    def test_discover_live_shows_table(self, runner, mock_live):
+        result = runner.invoke(cli, ["discover-live"])
+        assert result.exit_code == 0
+        assert "OpenRouter" in result.output
+        assert "2" in result.output  # 2 model free
+
+    def test_discover_live_error_exits_1(self, runner, monkeypatch):
+        import src.cli.main as m
+        from src.discovery.live import LiveDiscoveryError
+
+        def fake_error():
+            raise LiveDiscoveryError("Timeout")
+
+        monkeypatch.setattr(m, "discover_live", fake_error)
+        result = runner.invoke(cli, ["discover-live"])
+        assert result.exit_code == 1
+        assert "Lỗi live discovery" in result.output
+
+    def test_discover_live_saves_output(self, runner, tmp_path, mock_live):
+        out = tmp_path / "live.json"
+        result = runner.invoke(cli, ["discover-live", "--output", str(out)])
+        assert result.exit_code == 0
+        assert out.exists()
+        data = json.loads(out.read_text())
+        assert data["total_count"] == 1
+        assert data["providers"][0]["name"] == "OpenRouter"
+        assert len(data["providers"][0]["models"]) == 2
