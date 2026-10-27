@@ -60,6 +60,9 @@ class TestDataConsistency:
 
     def test_base_urls_are_https(self):
         for p in KNOWN_PROVIDERS:
+            if "local" in p.tags:
+                # Provider local (Ollama...) chạy trên máy, dùng HTTP là hợp lý
+                continue
             assert p.base_url.startswith("https://"), (
                 f"{p.name} dùng URL không an toàn: {p.base_url}"
             )

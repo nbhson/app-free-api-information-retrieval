@@ -4,6 +4,21 @@ Tất cả thay đổi quan trọng của project được ghi nhận trong file
 Format dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning theo [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] — 2026-10-27
+
+### Added
+- **3 providers mới**: Ollama (local inference), GigaChat (Nga), Yandex Cloud
+- **Health check command**: `python run.py health` — kiểm tra nhanh registry + config
+- **Structured logging**: `--verbose` flag cho debug, dùng stdlib logging
+- **AI dedup**: tự động lọc provider trùng lặp khi dùng `discover-ai`
+- **Exit codes chuẩn cho CLI**: `check` trả 0 (active), 1 (inactive/not found), 2 (rate limited); `list --verify` trả 1 nếu có provider chết
+
+### Changed
+- **Verification trả về copy**: `verify_provider`/`verify_all_providers` không còn mutate shared state
+- **Semaphore cục bộ**: moved từ module-level vào function scope — thread-safe hơn
+- **Registry refresh**: xoá 3 providers chết (Novu.ai, Leiku AI, OpenChat), cập nhật models stale (Groq, Gemini 1.5 → 2.0, Together AI marked paid-only)
+- **Test deps tách riêng**: `requirements-dev.txt`, pytest không còn trong production image
+
 ## [1.0.0] — 2026-10-27
 
 ### Added

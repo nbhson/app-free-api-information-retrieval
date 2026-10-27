@@ -55,6 +55,13 @@ docker compose run app list --verify
 
 # Xuất YAML
 ./venv/bin/python run.py update --output data/providers.yaml
+
+# Kiểm tra nhanh health
+./venv/bin/python run.py health
+./venv/bin/python run.py health --output health.json
+
+# Bật debug logging
+./venv/bin/python run.py list --verbose
 ```
 
 ## 🤖 AI Discovery (tìm provider bằng AI)
@@ -96,17 +103,18 @@ verification/aggregation hiện có. Provider tìm bởi AI được tag `ai-dis
 src/
 ├── models.py                    # Data models (Provider, Model, ...)
 ├── config.py                    # Load .env (AI_PROVIDER_BASE_URL, AI_API_KEY, AI_MODEL)
+├── logging_config.py            # Structured logging (stdlib)
 ├── discovery/
 │   ├── __init__.py              # Gộp registry + helpers
 │   ├── providers_part1.py       # Providers phổ biến (OpenRouter, Groq, ...)
-│   ├── providers_part2.py       # Providers bổ sung (HF, DeepSeek, ...)
+│   ├── providers_part2.py       # Providers bổ sung + new: Ollama, GigaChat, Yandex
 │   └── ai_agent.py              # AI Discovery Agent (gọi LLM tìm provider mới)
 ├── verification/
-│   └── checker.py               # Async endpoint checker
+│   └── checker.py               # Async endpoint checker (returns copies, local semaphore)
 ├── aggregation/
 │   └── aggregator.py            # Xuất JSON/YAML
 └── cli/
-    └── main.py                  # Click CLI: list / check / update / discover-ai
+    └── main.py                  # Click CLI: list / check / update / discover-ai / health
 ```
 
 ## Provider hiện có (15)
@@ -114,38 +122,49 @@ src/
 | Provider | Free tier | OpenAI-compatible | Ghi chú |
 |----------|-----------|-------------------|---------|
 | OpenRouter | ✅ (:free models) | ✅ | |
-| Groq | ✅ | ✅ | |
-| Google Gemini | ✅ | ❌ (custom) | |
+| Groq | ✅ | ✅ | llama-3.1-8b, mixtral-8x7b |
+| Google Gemini | ✅ | ❌ (custom) | gemini-2.0-flash free tier |
 | Mistral AI | ✅ (thí điểm) | ✅ | |
 | Cohere | ✅ (trial key) | ❌ (custom) | |
-| Together AI | ✅ | ✅ | |
+| Together AI | ❌ (paid-only) | ✅ | Free tier đã kết thúc |
 | Hugging Face | ✅ | ❌ (custom) | serverless |
 | Fireworks AI | ✅ | ✅ | |
 | SiliconFlow | ⚠️ free + credits | ✅ | model nhỏ free |
 | Anthropic | 💰 trial-only | ❌ (anthropic) | $5 credits |
 | Perplexity | 💰 trial-only | ✅ | $5 credits |
 | DeepSeek | 💰 trial-only | ✅ | 500M tokens |
-| Novu.ai | ⚠️ unverified | ✅ | có thể đã chết |
-| Leiku AI | ⚠️ unverified | ✅ | no-auth |
-| OpenChat | ⚠️ unverified | ✅ | |
+| Ollama | ✅ | ✅ | local, no-auth |
+| GigaChat | ✅ | ❌ (custom) | Nga, 100 req/ngày |
+| Yandex Cloud | ✅ (Lite) | ❌ (custom) | Nga, 5K tokens/phút |
 
 ## Đóng góp
 
 Muốn thêm provider mới? Sửa `src/discovery/providers_part2.py` và thêm entry
 theo format `Provider(...)`. Sau đó chạy `update` để verify.
 
+## Exit Codes
+
+| Code | Ý nghĩa |
+|------|---------|
+| 0 | Thành công |
+| 1 | Lỗi (provider không tìm thấy, inactive, hoặc có provider chết khi verify) |
+| 2 | Rate limited |
+
 ## Phát triển (Enterprise)
 
 ```bash
 # Cài dev dependencies (pytest, ruff, ...)
-./venv/bin/pip install -e ".[dev]"
+pip install -r requirements-dev.txt
 
-# Chạy test suite (71 tests)
+# Chạy test suite (73 tests)
 ./venv/bin/python -m pytest tests/ --cov=src
 
 # Lint + format
 ./venv/bin/ruff check src/ tests/
 ./venv/bin/ruff format src/ tests/
+
+# Health check
+./venv/bin/python run.py health
 
 # Docker
 docker compose run app list

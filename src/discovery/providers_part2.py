@@ -27,6 +27,13 @@ HF_MODELS = [
         context_length=32768,
         supports_streaming=False,
     ),
+    Model(
+        id="google/gemma-2-2b-it",
+        name="Gemma 2 2B IT",
+        is_free=True,
+        context_length=8192,
+        supports_streaming=False,
+    ),
 ]
 
 HUGGINGFACE = Provider(
@@ -187,79 +194,107 @@ DEEPSEEK = Provider(
     tags=["china", "free-credits", "openai-compatible", "coder", "trial-only"],
 )
 
-# ─── NOvus AI ───
-NOVUS_MODELS = [
+# ─── OLLAMA (Local) ───
+OLLAMA_MODELS = [
     Model(
-        id="nousresearch/hermes-3-llama-3.1-8b",
-        name="Hermes 3 Llama 3.1 8B",
+        id="llama3.2:latest",
+        name="Llama 3.2 Latest",
         is_free=True,
         context_length=131072,
         supports_streaming=True,
     ),
-]
-
-NOVUS = Provider(
-    name="Novu.ai",
-    base_url="https://api.novu.ai/v1",
-    website="https://novu.ai",
-    description="Open-source model API với free tier. ⚠️ CHƯA XÁC MINH — endpoint có thể đã chết.",
-    models=NOVUS_MODELS,
-    status=ProviderStatus.UNKNOWN,
-    auth_type=AuthType.API_KEY,
-    api_style=APIStyle.OPENAI,
-    auth_required=True,
-    rate_limit="Free tier giới hạn",
-    tags=["open-source", "free-tier", "unverified"],
-)
-
-# ─── LEIKU AI ───
-LEIKU_MODELS = [
     Model(
-        id="default",
-        name="Default Model",
+        id="qwen2.5:latest",
+        name="Qwen 2.5 Latest",
         is_free=True,
-        context_length=8192,
+        context_length=32768,
+        supports_streaming=True,
+    ),
+    Model(
+        id="mistral:latest",
+        name="Mistral Latest",
+        is_free=True,
+        context_length=32768,
         supports_streaming=True,
     ),
 ]
 
-LEIKU = Provider(
-    name="Leiku AI",
-    base_url="https://api.leiku.io/v1",
-    website="https://leiku.io",
-    description="API miễn phí của cộng đồng AI Việt Nam. ⚠️ CHƯA XÁC MINH — endpoint có thể đã chết.",
-    models=LEIKU_MODELS,
+OLLAMA = Provider(
+    name="Ollama",
+    base_url="http://localhost:11434/v1",
+    website="https://ollama.com",
+    description="Local LLM inference. Chạy hoàn toàn trên máy, không cần internet, không API key.",
+    models=OLLAMA_MODELS,
     status=ProviderStatus.UNKNOWN,
     auth_type=AuthType.NONE,
     api_style=APIStyle.OPENAI,
     auth_required=False,
-    rate_limit="Không rõ",
-    tags=["vietnam", "free", "no-auth", "unverified"],
+    rate_limit="Không giới hạn (chạy local)",
+    tags=["local", "no-auth", "open-source"],
 )
 
-# ─── OPENCHAT ───
-OPENCHAT_MODELS = [
+# ─── GIGACHAT (Russia) ───
+GIGACHAT_MODELS = [
     Model(
-        id="openchat-3.5-1210",
-        name="OpenChat 3.5",
+        id="GigaChat",
+        name="GigaChat",
         is_free=True,
         context_length=8192,
         supports_streaming=True,
     ),
+    Model(
+        id="GigaChat-Pro",
+        name="GigaChat Pro",
+        is_free=False,
+        context_length=32768,
+        supports_streaming=True,
+    ),
 ]
 
-OPENCHAT = Provider(
-    name="OpenChat",
-    base_url="https://api.openchat.chat/v1",
-    website="https://openchat.chat",
-    description="Cung cấp model OpenChat miễn phí qua API. ⚠️ CHƯA XÁC MINH — endpoint có thể đã chết.",
-    models=OPENCHAT_MODELS,
+GIGACHAT = Provider(
+    name="GigaChat",
+    base_url="https://gigachat.devices.sberbank.ru/api/v1",
+    website="https://gigachat.ai",
+    description="LLM của Sberbank (Nga), có free tier với giới hạn. Cần đăng ký tài khoản Sber ID.",
+    models=GIGACHAT_MODELS,
     status=ProviderStatus.UNKNOWN,
     auth_type=AuthType.API_KEY,
-    api_style=APIStyle.OPENAI,
+    api_style=APIStyle.CUSTOM,
     auth_required=True,
-    rate_limit="Free tier với daily limit",
-    tags=["open-source", "free-tier", "unverified"],
+    rate_limit="Free tier: 100 req/ngày sau khi đăng ký",
+    tags=["russia", "free-tier"],
+)
+
+# ─── YANDEX GPT (Russia) ───
+YANDEX_MODELS = [
+    Model(
+        id="yandexgpt-lite",
+        name="YandexGPT Lite",
+        is_free=True,
+        context_length=8192,
+        supports_streaming=True,
+    ),
+    Model(
+        id="yandexgpt",
+        name="YandexGPT",
+        is_free=False,
+        context_length=32000,
+        supports_streaming=True,
+    ),
+]
+
+YANDEX = Provider(
+    name="Yandex Cloud",
+    base_url="https://llm.api.cloud.yandex.net/foundationModels/v1",
+    website="https://cloud.yandex.com/en/docs/llm/",
+    description="Yandex LLM API. Có free tier giới hạn (Lite model). Cần Yandex Cloud account.",
+    models=YANDEX_MODELS,
+    status=ProviderStatus.UNKNOWN,
+    auth_type=AuthType.API_KEY,
+    api_style=APIStyle.CUSTOM,
+    auth_required=True,
+    rate_limit="Free tier: 5K tokens/phút, 50K tokens/ngày (Lite model)",
+    tags=["russia", "free-tier"],
 )
 
 KNOWN_PROVIDERS_PART2: list[Provider] = [
@@ -269,7 +304,7 @@ KNOWN_PROVIDERS_PART2: list[Provider] = [
     FIREWORKS,
     SILICONFLOW,
     DEEPSEEK,
-    NOVUS,
-    LEIKU,
-    OPENCHAT,
+    OLLAMA,
+    GIGACHAT,
+    YANDEX,
 ]

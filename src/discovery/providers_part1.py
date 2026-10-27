@@ -80,8 +80,7 @@ OPENROUTER = Provider(
 )
 
 # ─── GROQ ───
-# Lưu ý: Groq đã ngừng một số model cũ (mixtral-8x7b-32768, gemma2-9b-it).
-# Danh sách này cần cập nhật định kỳ bằng lệnh: python run.py update
+# Lưu ý: Groq liên tục cập nhật model. Chạy `python run.py update` để sync.
 GROQ_MODELS = [
     Model(
         id="llama-3.1-8b-instant",
@@ -99,17 +98,17 @@ GROQ_MODELS = [
         supports_streaming=True,
     ),
     Model(
-        id="gemma2-9b-it",
-        name="Gemma 2 9B IT",
+        id="mixtral-8x7b-32768",
+        name="Mixtral 8x7B",
         is_free=True,
-        context_length=8192,
+        context_length=32768,
         supports_streaming=True,
     ),
     Model(
-        id="llama3-groq-70b-8192-tool-use-preview",
-        name="Llama3 70B Tool Use",
+        id="llama-3.2-1b-instant",
+        name="Llama 3.2 1B Instant",
         is_free=True,
-        context_length=8192,
+        context_length=131072,
         supports_streaming=True,
     ),
 ]
@@ -145,18 +144,12 @@ GEMINI_MODELS = [
         supports_streaming=True,
     ),
     Model(
-        id="gemini-1.5-pro",
-        name="Gemini 1.5 Pro",
+        id="gemini-2.0-flash-exp",
+        name="Gemini 2.0 Flash",
         is_free=True,
-        context_length=2097152,
+        context_length=1048576,
         supports_streaming=True,
-    ),
-    Model(
-        id="gemini-1.0-pro",
-        name="Gemini 1.0 Pro",
-        is_free=True,
-        context_length=32768,
-        supports_streaming=True,
+        description="Model free tier chính 2026 - nhanh và rẻ",
     ),
 ]
 
@@ -170,7 +163,7 @@ GOOGLE_GEMINI = Provider(
     auth_type=AuthType.API_KEY,
     api_style=APIStyle.CUSTOM,
     auth_required=True,
-    rate_limit="15 req/phút, 1500 req/ngày (free tier Gemini 1.5 Flash)",
+    rate_limit="15 req/phút, 1500 req/ngày (free tier). Gemini 2.0 Flash dùng thoải mái.",
     tags=["free-tier", "popular", "long-context"],
 )
 
@@ -255,30 +248,31 @@ COHERE = Provider(
     auth_type=AuthType.API_KEY,
     api_style=APIStyle.CUSTOM,
     auth_required=True,
-    rate_limit="Trial: 20 req/phút, 1.000 req/tháng",
+    rate_limit="Trial: 20 req/phút, có thể hết sau vài ngày",
     tags=["trial-key", "rag"],
 )
 
 # ─── TOGETHER AI ───
+# Free tier đã kết thúc tháng 3/2025
 TOGETHER_MODELS = [
     Model(
         id="meta-llama/Llama-3.2-3B-Instruct-Turbo",
         name="Llama 3.2 3B Turbo",
-        is_free=True,
+        is_free=False,
         context_length=131072,
         supports_streaming=True,
     ),
     Model(
         id="meta-llama/Meta-Llama-3-8B-Instruct-Turbo",
         name="Llama 3 8B Turbo",
-        is_free=True,
+        is_free=False,
         context_length=8192,
         supports_streaming=True,
     ),
     Model(
         id="mistralai/Mistral-7B-Instruct-v0.2",
         name="Mistral 7B Instruct v0.2",
-        is_free=True,
+        is_free=False,
         context_length=32768,
         supports_streaming=True,
     ),
@@ -288,14 +282,14 @@ TOGETHER_AI = Provider(
     name="Together AI",
     base_url="https://api.together.xyz/v1",
     website="https://api.together.ai",
-    description="Có free tier giới hạn cho một số model open-source nhất định.",
+    description="Free tier đã kết thúc tháng 3/2025. Chỉ trả phí.",
     models=TOGETHER_MODELS,
     status=ProviderStatus.ACTIVE,
     auth_type=AuthType.API_KEY,
     api_style=APIStyle.OPENAI,
     auth_required=True,
-    rate_limit="Free tier: giới hạn theo model, cần đăng ký",
-    tags=["open-source", "free-tier", "openai-compatible"],
+    rate_limit="Chỉ trả phí - không còn free tier",
+    tags=["open-source", "paid-only", "openai-compatible"],
 )
 
 KNOWN_PROVIDERS_PART1: list[Provider] = [

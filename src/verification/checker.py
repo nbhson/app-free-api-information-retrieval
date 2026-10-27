@@ -20,9 +20,6 @@ RETRY_BACKOFF_BASE = 1.0  # giây — backoff = base * 2^attempt
 
 _HEADERS = {"User-Agent": "free-llm-provider-discovery/1.0"}
 
-# Semaphore dùng chung toàn process
-_semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
-
 
 def _models_url(base_url: str) -> str:
     """Chuẩn hoá URL tới endpoint /models."""
@@ -37,26 +34,28 @@ async def verify_provider(
     """
     Kiểm tra một provider có hoạt động không.
     Gửi GET request nhẹ tới {base_url}/models, retry khi lỗi tạm thời.
+    Trả về bản copy — không mutate provider gốc.
     """
-    url = _models_url(provider.base_url)
+    # Tạo bản copy để không mutate shared state (singleton trong KNOWN_PROVIDERS)
+    result = provider.model_copy(deep=True)
+    url = _models_url(result.base_url)
 
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         for attempt in range(retries + 1):
             try:
-                async with _semaphore:
-                    resp = await client.get(url, headers=_HEADERS)
+                resp = await client.get(url, headers=_HEADERS)
 
                 if resp.status_code == 200:
-                    provider.status = ProviderStatus.ACTIVE
+                    result.status = ProviderStatus.ACTIVE
                 elif resp.status_code == 401:
                     # Endpoint tồn tại nhưng cần auth -> vẫn coi là active
-                    provider.status = ProviderStatus.ACTIVE
+                    result.status = ProviderStatus.ACTIVE
                 elif resp.status_code == 429:
-                    provider.status = ProviderStatus.RATE_LIMITED
+                    result.status = ProviderStatus.RATE_LIMITED
                 else:
-                    provider.status = ProviderStatus.INACTIVE
-                provider.last_verified = datetime.now(timezone.utc)
-                return provider
+                    result.status = ProviderStatus.INACTIVE
+                result.last_verified = datetime.now(timezone.utc)
+                return result
 
             except (httpx.ConnectError, httpx.TimeoutException):
                 if attempt < retries:
@@ -64,16 +63,23 @@ async def verify_provider(
                     await asyncio.sleep(RETRY_BACKOFF_BASE * (2**attempt))
 
             except Exception:
-                provider.status = ProviderStatus.UNKNOWN
-                provider.last_verified = datetime.now(timezone.utc)
-                return provider
+                result.status = ProviderStatus.UNKNOWN
+                result.last_verified = datetime.now(timezone.utc)
+                return result
 
-    provider.status = ProviderStatus.INACTIVE
-    provider.last_verified = datetime.now(timezone.utc)
-    return provider
+    result.status = ProviderStatus.INACTIVE
+    result.last_verified = datetime.now(timezone.utc)
+    return result
 
 
 async def verify_all_providers(providers: list[Provider]) -> list[Provider]:
     """Kiểm tra song song nhiều provider (giới hạn bởi MAX_CONCURRENCY)."""
-    tasks = [verify_provider(p) for p in providers]
+    # Semaphore cục bộ cho mỗi lần gọi — tránh lỗi event loop khi dùng lại ở event loop khác
+    semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
+
+    async def bounded(p: Provider) -> Provider:
+        async with semaphore:
+            return await verify_provider(p)
+
+    tasks = [bounded(p) for p in providers]
     return await asyncio.gather(*tasks)

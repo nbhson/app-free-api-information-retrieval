@@ -111,10 +111,36 @@ class TestVerifyAll:
 
 
 class TestConcurrency:
-    def test_semaphore_configured(self):
-        """Semaphore tồn tại và giới hạn đúng giá trị cấu hình."""
-        assert isinstance(checker._semaphore, asyncio.Semaphore)
+    def test_max_concurrency_configured(self):
+        """Giá trị cấu hình concurrency hợp lệ."""
         assert checker.MAX_CONCURRENCY >= 1
+
+    def test_verify_provider_does_not_mutate_original(self, sample_provider, monkeypatch):
+        """verify_provider trả về bản copy — không mutate provider gốc trong registry."""
+
+        def handler(request):
+            return httpx.Response(200)
+
+        monkeypatch.setattr(checker.httpx, "AsyncClient", lambda **kw: _transport(handler))
+        original_status = sample_provider.status
+        result = asyncio.run(verify_provider(sample_provider))
+        assert result is not sample_provider
+        assert result.status == ProviderStatus.ACTIVE
+        assert sample_provider.status == original_status
+        assert sample_provider.last_verified is None
+
+    async def test_verify_all_does_not_mutate_originals(self, sample_providers, monkeypatch):
+        """verify_all_providers không mutate các provider đầu vào."""
+        statuses_before = [p.status for p in sample_providers]
+
+        def handler(request):
+            return httpx.Response(200)
+
+        monkeypatch.setattr(checker.httpx, "AsyncClient", lambda **kw: _transport(handler))
+        results = await verify_all_providers(sample_providers)
+        assert all(r is not p for r, p in zip(results, sample_providers, strict=False))
+        assert [p.status for p in sample_providers] == statuses_before
+        assert all(p.status == ProviderStatus.ACTIVE for p in results)
 
     async def test_many_providers_all_verified(self, sample_providers, monkeypatch):
         """20 provider — tất cả được verify, kết quả đúng thứ tự."""

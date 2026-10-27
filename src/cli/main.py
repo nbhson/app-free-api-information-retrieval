@@ -5,6 +5,8 @@ Main CLI entry point
 import asyncio
 import json
 import sys
+from datetime import datetime, timezone
+from pathlib import Path
 
 import click
 from rich import box
@@ -17,10 +19,13 @@ from src.aggregation.aggregator import (
     save_to_yaml,
 )
 from src.config import get_ai_config
-from src.discovery import KNOWN_PROVIDERS, get_provider_by_name
+from src.discovery import KNOWN_PROVIDERS, get_provider_by_name, get_providers_by_tag
 from src.discovery.ai_agent import AIDiscoveryError, discover_with_ai
+from src.logging_config import get_logger, setup_logging
 from src.models import ProviderStatus
 from src.verification.checker import verify_all_providers, verify_provider
+
+logger = get_logger("cli")
 
 console = Console()
 
@@ -86,8 +91,14 @@ def cli():
     "--tag", "-t", multiple=True, help="Lọc theo tag (vd: --tag free-tier --tag openai-compatible)"
 )
 @click.option("--no-auth", is_flag=True, default=False, help="Chỉ hiện provider không cần API key")
-def list_cmd(fmt, output, verify, show_all_models, tag, no_auth):
+@click.option("--verbose", "-v", is_flag=True, default=False, help="Bật debug logging")
+def list_cmd(fmt, output, verify, show_all_models, tag, no_auth, verbose):
     """Liệt kê tất cả provider đã biết."""
+    if verbose:
+        setup_logging("DEBUG")
+    else:
+        setup_logging("WARNING")  # mặc định quiet
+
     providers = list(KNOWN_PROVIDERS)
 
     # Lọc theo tag
@@ -99,8 +110,12 @@ def list_cmd(fmt, output, verify, show_all_models, tag, no_auth):
         providers = [p for p in providers if not p.auth_required]
 
     if verify:
-        console.print("[dim]Đang kiểm tra các endpoint...[/dim]")
+        logger.info("Đang kiểm tra các endpoint...")
         providers = asyncio.run(verify_all_providers(providers))
+        inactive = [p for p in providers if p.status == ProviderStatus.INACTIVE]
+        if inactive:
+            logger.warning("Có %d provider không hoạt động", len(inactive))
+            sys.exit(1)
 
     # Lưu ra file trước (nếu có --output) để mọi định dạng đều nhận được dữ liệu
     if output:
@@ -148,8 +163,13 @@ def check(provider):
 
     if p.status == ProviderStatus.ACTIVE:
         console.print(f"[green]✓[/green] {p.name}: [green]ACTIVE[/green]")
+        sys.exit(0)
+    elif p.status == ProviderStatus.RATE_LIMITED:
+        console.print(f"[yellow]⚠[/yellow] {p.name}: [yellow]RATE_LIMITED[/yellow]")
+        sys.exit(2)
     else:
         console.print(f"[red]✗[/red] {p.name}: [{_status_style(p.status)}]{p.status.value}[/]")
+        sys.exit(1)
 
 
 @cli.command()
@@ -158,7 +178,7 @@ def check(provider):
 )
 def update(output):
     """Kiểm tra tất cả provider và cập nhật file dữ liệu."""
-    console.print("[dim]Đang kiểm tra tất cả provider...[/dim]")
+    logger.info("Đang kiểm tra tất cả provider...")
     providers = asyncio.run(verify_all_providers(list(KNOWN_PROVIDERS)))
     provider_list = aggregate_providers(providers)
     if output.endswith(".yaml") or output.endswith(".yml"):
@@ -186,6 +206,21 @@ def discover_ai(output, verify, show):
 
     console.print(f"\n[green]✓[/green] AI tìm thấy [bold]{len(found)}[/bold] provider:\n")
 
+    # Deduplication với registry hiện tại — bỏ provider đã biết (trùng URL hoặc tên)
+    if found:
+        existing_urls = {p.base_url.lower() for p in KNOWN_PROVIDERS}
+        existing_names = {p.name.lower() for p in KNOWN_PROVIDERS}
+        original_count = len(found)
+        found = [
+            p
+            for p in found
+            if p.base_url.lower() not in existing_urls and p.name.lower() not in existing_names
+        ]
+        if original_count > len(found):
+            console.print(
+                f"[dim]Đã lọc {original_count - len(found)} provider trùng lặp với registry[/dim]"
+            )
+
     if show and found:
         _print_provider_table(found, show_all_models=True)
 
@@ -201,6 +236,52 @@ def discover_ai(output, verify, show):
     # Lưu cả khi rỗng để người dùng biết
     if not found:
         console.print("[yellow]⚠ AI không trả về provider hợp lệ nào.[/yellow]")
+
+
+@cli.command("health")
+@click.option("--output", "-o", type=str, default=None, help="Lưu JSON ra file")
+def health(output):
+    """Kiểm tra nhanh sức khoẻ của hệ thống (registry + config)."""
+    import json
+
+    results = {
+        "status": "healthy",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "registry": {
+            "total_providers": len(KNOWN_PROVIDERS),
+            "free_tier_count": len(get_providers_by_tag("free-tier")),
+            "verified_count": len(
+                [p for p in KNOWN_PROVIDERS if p.status == ProviderStatus.ACTIVE]
+            ),
+        },
+        "ai_configured": get_ai_config().is_configured(),
+        "version": "1.1.0",
+    }
+
+    # Check xem có provider nào chưa verify không
+    unknown_providers = [p for p in KNOWN_PROVIDERS if p.status == ProviderStatus.UNKNOWN]
+    if unknown_providers:
+        results["warnings"] = [f"{p.name} chưa được verify" for p in unknown_providers]
+
+    if output:
+        Path(output).write_text(json.dumps(results, indent=2, ensure_ascii=False))
+        console.print(f"[green]✓[/green] Đã lưu health report vào [bold]{output}[/bold]")
+    else:
+        console.print("[bold]Health Check[/bold]")
+        console.print(
+            f"  Registry: {results['registry']['total_providers']} providers, "
+            f"{results['registry']['free_tier_count']} free-tier, "
+            f"{results['registry']['verified_count']} đã verify"
+        )
+        console.print(
+            f"  AI Configured: "
+            f"{'[green]✓[/green]' if results['ai_configured'] else '[yellow]⚠ Chưa cấu hình[/yellow]'}"
+        )
+        console.print(f"  Version: {results['version']}")
+        if "warnings" in results:
+            console.print(f"  [yellow]Warnings:[/yellow] {len(results['warnings'])}")
+            for w in results["warnings"]:
+                console.print(f"    • {w}")
 
 
 def main():
