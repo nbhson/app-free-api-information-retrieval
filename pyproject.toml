@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "free-llm-provider-discovery"
+version = "1.0.0"
+description = "CLI tool để khám phá và thu thập danh sách các LLM API provider miễn phí"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.28.0",
+    "httpx>=0.24.0",
+    "pyyaml>=6.0",
+    "click>=8.0.0",
+    "rich>=13.0.0",
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+free-llm-providers = "src.cli.main:main"
+
+[tool.setuptools.packages.find]
+include = ["src*"]

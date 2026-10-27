@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+
+# Environment (chứa API key - KHÔNG commit)
+.env
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Output data (optional, giữ data/providers.json làm sample)
+# data/*.json

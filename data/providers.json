@@ -1,0 +1,607 @@
+{
+  "last_updated": "2026-10-27T15:36:28.244205",
+  "total_count": 15,
+  "providers": [
+    {
+      "name": "OpenRouter",
+      "base_url": "https://openrouter.ai/api/v1",
+      "website": "https://openrouter.ai",
+      "description": "Aggregator nhiều LLM. Nhiều model có tag ':free' dùng không mất phí.",
+      "models": [
+        {
+          "id": "openchat/openchat-7b",
+          "name": "OpenChat 7B",
+          "is_free": true,
+          "context_length": 8192,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "mistralai/mistral-7b-instruct",
+          "name": "Mistral 7B Instruct",
+          "is_free": true,
+          "context_length": 8192,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "meta-llama/llama-2-13b-chat",
+          "name": "Llama 2 13B Chat",
+          "is_free": true,
+          "context_length": 4096,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "01-ai/yi-6b-chat",
+          "name": "Yi 6B Chat",
+          "is_free": true,
+          "context_length": 4096,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "openrouter/auto",
+          "name": "Auto (Best Free)",
+          "is_free": true,
+          "context_length": 128000,
+          "description": "Tự động chọn model miễn phí tốt nhất",
+          "supports_streaming": true
+        },
+        {
+          "id": "qwen/qwen-14b-chat",
+          "name": "Qwen 14B Chat",
+          "is_free": true,
+          "context_length": 8192,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "deepseek/deepseek-67b-chat",
+          "name": "DeepSeek 67B Chat",
+          "is_free": true,
+          "context_length": 16384,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "nousresearch/nous-hermes-llama2-13b",
+          "name": "Nous Hermes Llama2 13B",
+          "is_free": true,
+          "context_length": 4096,
+          "description": null,
+          "supports_streaming": true
+        }
+      ],
+      "status": "active",
+      "auth_type": "api_key",
+      "api_style": "openai",
+      "auth_required": true,
+      "rate_limit": "200 req/ngày (free, không card); 1000 req/ngày (có card $10+)",
+      "last_verified": "2026-10-27T15:36:22.528042",
+      "tags": [
+        "aggregation",
+        "multi-model",
+        "popular",
+        "free-tier"
+      ]
+    },
+    {
+      "name": "Groq",
+      "base_url": "https://api.groq.com/openai/v1",
+      "website": "https://console.groq.com",
+      "description": "Inference cực nhanh trên LPU. Free tier hào phóng, tương thích OpenAI SDK.",
+      "models": [
+        {
+          "id": "llama-3.1-8b-instant",
+          "name": "Llama 3.1 8B Instant",
+          "is_free": true,
+          "context_length": 131072,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "llama-3.3-70b-versatile",
+          "name": "Llama 3.3 70B Versatile",
+          "is_free": true,
+          "context_length": 131072,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "mixtral-8x7b-32768",
+          "name": "Mixtral 8x7B",
+          "is_free": true,
+          "context_length": 32768,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "gemma2-9b-it",
+          "name": "Gemma 2 9B IT",
+          "is_free": true,
+          "context_length": 8192,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "llama3-groq-70b-8192-tool-use-preview",
+          "name": "Llama3 70B Tool Use",
+          "is_free": true,
+          "context_length": 8192,
+          "description": null,
+          "supports_streaming": true
+        }
+      ],
+      "status": "active",
+      "auth_type": "api_key",
+      "api_style": "openai",
+      "auth_required": true,
+      "rate_limit": "~30 req/phút, 14.400 req/ngày (free)",
+      "last_verified": "2026-10-27T15:36:23.677224",
+      "tags": [
+        "fast-inference",
+        "free-tier",
+        "openai-compatible"
+      ]
+    },
+    {
+      "name": "Google Gemini API",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta",
+      "website": "https://ai.google.dev",
+      "description": "Free tier hào phóng của Google. Key lấy miễn phí tại AI Studio.",
+      "models": [
+        {
+          "id": "gemini-1.5-flash",
+          "name": "Gemini 1.5 Flash",
+          "is_free": true,
+          "context_length": 1048576,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "gemini-1.5-flash-8b",
+          "name": "Gemini 1.5 Flash 8B",
+          "is_free": true,
+          "context_length": 1048576,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "gemini-1.5-pro",
+          "name": "Gemini 1.5 Pro",
+          "is_free": true,
+          "context_length": 2097152,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "gemini-1.0-pro",
+          "name": "Gemini 1.0 Pro",
+          "is_free": true,
+          "context_length": 32768,
+          "description": null,
+          "supports_streaming": true
+        }
+      ],
+      "status": "inactive",
+      "auth_type": "api_key",
+      "api_style": "custom",
+      "auth_required": true,
+      "rate_limit": "15 req/phút, 1500 req/ngày (free tier Gemini 1.5 Flash)",
+      "last_verified": "2026-10-27T15:36:22.460890",
+      "tags": [
+        "free-tier",
+        "popular",
+        "long-context"
+      ]
+    },
+    {
+      "name": "Mistral AI",
+      "base_url": "https://api.mistral.ai/v1",
+      "website": "https://console.mistral.ai",
+      "description": "La Plateforme có free tier (thí điểm), tương thích OpenAI SDK.",
+      "models": [
+        {
+          "id": "open-mistral-7b",
+          "name": "Mistral 7B",
+          "is_free": true,
+          "context_length": 32768,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "open-mixtral-8x7b",
+          "name": "Mixtral 8x7B",
+          "is_free": true,
+          "context_length": 32768,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "open-mixtral-8x22b",
+          "name": "Mixtral 8x22B",
+          "is_free": true,
+          "context_length": 65536,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "mistral-small-latest",
+          "name": "Mistral Small",
+          "is_free": true,
+          "context_length": 32768,
+          "description": null,
+          "supports_streaming": true
+        }
+      ],
+      "status": "active",
+      "auth_type": "api_key",
+      "api_style": "openai",
+      "auth_required": true,
+      "rate_limit": "1 req/giây, 500.000 token/phút, 1 tỷ token/tháng (free tier)",
+      "last_verified": "2026-10-27T15:36:28.243473",
+      "tags": [
+        "european",
+        "free-tier",
+        "openai-compatible"
+      ]
+    },
+    {
+      "name": "Cohere",
+      "base_url": "https://api.cohere.com/v2",
+      "website": "https://dashboard.cohere.com",
+      "description": "Trial key miễn phí cho mục đích phát triển và thử nghiệm.",
+      "models": [
+        {
+          "id": "command-r",
+          "name": "Command R",
+          "is_free": true,
+          "context_length": 128000,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "command-r-plus",
+          "name": "Command R+",
+          "is_free": true,
+          "context_length": 128000,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "command-r-08-2024",
+          "name": "Command R 08-2024",
+          "is_free": true,
+          "context_length": 128000,
+          "description": null,
+          "supports_streaming": true
+        }
+      ],
+      "status": "active",
+      "auth_type": "api_key",
+      "api_style": "custom",
+      "auth_required": true,
+      "rate_limit": "Trial: 20 req/phút, 1.000 req/tháng",
+      "last_verified": "2026-10-27T15:36:23.054715",
+      "tags": [
+        "trial-key",
+        "rag"
+      ]
+    },
+    {
+      "name": "Together AI",
+      "base_url": "https://api.together.xyz/v1",
+      "website": "https://api.together.ai",
+      "description": "Có free tier giới hạn cho một số model open-source nhất định.",
+      "models": [
+        {
+          "id": "meta-llama/Llama-3.2-3B-Instruct-Turbo",
+          "name": "Llama 3.2 3B Turbo",
+          "is_free": true,
+          "context_length": 131072,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "meta-llama/Meta-Llama-3-8B-Instruct-Turbo",
+          "name": "Llama 3 8B Turbo",
+          "is_free": true,
+          "context_length": 8192,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "mistralai/Mistral-7B-Instruct-v0.2",
+          "name": "Mistral 7B Instruct v0.2",
+          "is_free": true,
+          "context_length": 32768,
+          "description": null,
+          "supports_streaming": true
+        }
+      ],
+      "status": "active",
+      "auth_type": "api_key",
+      "api_style": "openai",
+      "auth_required": true,
+      "rate_limit": "Free tier: giới hạn theo model, cần đăng ký",
+      "last_verified": "2026-10-27T15:36:23.432759",
+      "tags": [
+        "open-source",
+        "free-tier",
+        "openai-compatible"
+      ]
+    },
+    {
+      "name": "Hugging Face Inference",
+      "base_url": "https://api-inference.huggingface.co",
+      "website": "https://huggingface.co/inference-api",
+      "description": "Free tier cho Inference API. Model cần 'loaded' lần đầu (chờ ~30s).",
+      "models": [
+        {
+          "id": "mistralai/Mistral-7B-Instruct-v0.2",
+          "name": "Mistral 7B v0.2",
+          "is_free": true,
+          "context_length": 8192,
+          "description": null,
+          "supports_streaming": false
+        },
+        {
+          "id": "meta-llama/Llama-2-7b-chat-hf",
+          "name": "Llama 2 7B Chat",
+          "is_free": true,
+          "context_length": 4096,
+          "description": null,
+          "supports_streaming": false
+        },
+        {
+          "id": "Qwen/Qwen2-7B-Instruct",
+          "name": "Qwen 2 7B",
+          "is_free": true,
+          "context_length": 32768,
+          "description": null,
+          "supports_streaming": false
+        }
+      ],
+      "status": "inactive",
+      "auth_type": "api_key",
+      "api_style": "custom",
+      "auth_required": true,
+      "rate_limit": "Free: rate limit theo model, không có SLA",
+      "last_verified": "2026-10-27T15:36:22.385496",
+      "tags": [
+        "open-source",
+        "popular",
+        "serverless"
+      ]
+    },
+    {
+      "name": "Anthropic Claude API",
+      "base_url": "https://api.anthropic.com/v1",
+      "website": "https://console.anthropic.com",
+      "description": "Cung cấp API key miễn phí $5 cho thử nghiệm. Sau đó cần card.",
+      "models": [
+        {
+          "id": "claude-3-5-haiku-20241022",
+          "name": "Claude 3.5 Haiku",
+          "is_free": true,
+          "context_length": 200000,
+          "description": null,
+          "supports_streaming": true
+        }
+      ],
+      "status": "active",
+      "auth_type": "api_key",
+      "api_style": "custom",
+      "auth_required": true,
+      "rate_limit": "$5 credits miễn phí cho tài khoản mới",
+      "last_verified": "2026-10-27T15:36:22.669538",
+      "tags": [
+        "free-credits",
+        "popular"
+      ]
+    },
+    {
+      "name": "Perplexity API",
+      "base_url": "https://api.perplexity.ai",
+      "website": "https://perplexity.ai",
+      "description": "API cho web search engine. Key miễn phí $5 cho thử nghiệm.",
+      "models": [
+        {
+          "id": "sonar",
+          "name": "Sonar",
+          "is_free": true,
+          "context_length": 127072,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "sonar-pro",
+          "name": "Sonar Pro",
+          "is_free": true,
+          "context_length": 127072,
+          "description": null,
+          "supports_streaming": true
+        }
+      ],
+      "status": "inactive",
+      "auth_type": "api_key",
+      "api_style": "openai",
+      "auth_required": true,
+      "rate_limit": "$5 credits miễn phí",
+      "last_verified": "2026-10-27T15:36:25.728095",
+      "tags": [
+        "search",
+        "free-credits"
+      ]
+    },
+    {
+      "name": "Fireworks AI",
+      "base_url": "https://api.fireworks.ai/inference/v1",
+      "website": "https://fireworks.ai",
+      "description": "Nền tảng inference cho models mạnh. Free tier có giới hạn.",
+      "models": [
+        {
+          "id": "accounts/fireworks/models/llama-v3-8b-instruct",
+          "name": "Llama 3 8B",
+          "is_free": true,
+          "context_length": 8192,
+          "description": null,
+          "supports_streaming": true
+        }
+      ],
+      "status": "active",
+      "auth_type": "api_key",
+      "api_style": "openai",
+      "auth_required": true,
+      "rate_limit": "Free tier với token/day limit",
+      "last_verified": "2026-10-27T15:36:24.428986",
+      "tags": [
+        "fast-inference",
+        "free-tier"
+      ]
+    },
+    {
+      "name": "SiliconFlow",
+      "base_url": "https://api.siliconflow.cn/v1",
+      "website": "https://siliconflow.cn",
+      "description": "API nền tảng Trung Quốc với nhiều model miễn phí. Cần card nhưng có credits.",
+      "models": [
+        {
+          "id": "Qwen/Qwen2-7B-Instruct",
+          "name": "Qwen 2 7B",
+          "is_free": true,
+          "context_length": 32768,
+          "description": null,
+          "supports_streaming": true
+        }
+      ],
+      "status": "active",
+      "auth_type": "api_key",
+      "api_style": "openai",
+      "auth_required": true,
+      "rate_limit": "New users: credits miễn phí ban đầu",
+      "last_verified": "2026-10-27T15:36:23.075756",
+      "tags": [
+        "china",
+        "free-credits",
+        "openai-compatible"
+      ]
+    },
+    {
+      "name": "DeepSeek API",
+      "base_url": "https://api.deepseek.com/v1",
+      "website": "https://platform.deepseek.com",
+      "description": "Mô hình của DeepSeek Trung Quốc. Rất rẻ, có trial credits.",
+      "models": [
+        {
+          "id": "deepseek-chat",
+          "name": "DeepSeek Chat",
+          "is_free": true,
+          "context_length": 64000,
+          "description": null,
+          "supports_streaming": true
+        },
+        {
+          "id": "deepseek-coder",
+          "name": "DeepSeek Coder",
+          "is_free": true,
+          "context_length": 16384,
+          "description": null,
+          "supports_streaming": true
+        }
+      ],
+      "status": "active",
+      "auth_type": "api_key",
+      "api_style": "openai",
+      "auth_required": true,
+      "rate_limit": "New users: 500M tokens miễn phí ban đầu",
+      "last_verified": "2026-10-27T15:36:22.486456",
+      "tags": [
+        "china",
+        "free-credits",
+        "openai-compatible",
+        "coder"
+      ]
+    },
+    {
+      "name": "Novu.ai",
+      "base_url": "https://api.novu.ai/v1",
+      "website": "https://novu.ai",
+      "description": "Open-source model API với free tier. Đang phát triển.",
+      "models": [
+        {
+          "id": "nousresearch/hermes-3-llama-3.1-8b",
+          "name": "Hermes 3 Llama 3.1 8B",
+          "is_free": true,
+          "context_length": 131072,
+          "description": null,
+          "supports_streaming": true
+        }
+      ],
+      "status": "inactive",
+      "auth_type": "api_key",
+      "api_style": "openai",
+      "auth_required": true,
+      "rate_limit": "Free tier giới hạn",
+      "last_verified": "2026-10-27T15:36:23.194045",
+      "tags": [
+        "open-source",
+        "free-tier"
+      ]
+    },
+    {
+      "name": "Leiku AI",
+      "base_url": "https://api.leiku.io/v1",
+      "website": "https://leiku.io",
+      "description": "API miễn phí của cộng đồng AI Việt Nam.",
+      "models": [
+        {
+          "id": "default",
+          "name": "Default Model",
+          "is_free": true,
+          "context_length": 8192,
+          "description": null,
+          "supports_streaming": true
+        }
+      ],
+      "status": "inactive",
+      "auth_type": "none",
+      "api_style": "openai",
+      "auth_required": false,
+      "rate_limit": "Không rõ",
+      "last_verified": "2026-10-27T15:36:22.445397",
+      "tags": [
+        "vietnam",
+        "free",
+        "no-auth"
+      ]
+    },
+    {
+      "name": "OpenChat",
+      "base_url": "https://api.openchat.chat/v1",
+      "website": "https://openchat.chat",
+      "description": "Cung cấp model OpenChat miễn phí qua API.",
+      "models": [
+        {
+          "id": "openchat-3.5-1210",
+          "name": "OpenChat 3.5",
+          "is_free": true,
+          "context_length": 8192,
+          "description": null,
+          "supports_streaming": true
+        }
+      ],
+      "status": "inactive",
+      "auth_type": "api_key",
+      "api_style": "openai",
+      "auth_required": true,
+      "rate_limit": "Free tier với daily limit",
+      "last_verified": "2026-10-27T15:36:22.445772",
+      "tags": [
+        "open-source",
+        "free-tier"
+      ]
+    }
+  ]
+}
