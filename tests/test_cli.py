@@ -81,6 +81,12 @@ class TestCheckCommand:
         assert result.exit_code == 1
         assert "Không tìm thấy" in result.output
 
+    def test_check_suggests_similar_providers(self, runner):
+        """Khi gõ sai tên provider, CLI phải gợi ý gần đúng."""
+        result = runner.invoke(cli, ["check", "--provider", "grop"])  # typo of "groq"
+        assert result.exit_code == 1
+        assert "Groq" in result.output  # gợi ý đúng
+
     def test_check_success_shows_active(self, runner, mock_verify):
         result = runner.invoke(cli, ["check", "--provider", "groq"])
         assert result.exit_code == 0

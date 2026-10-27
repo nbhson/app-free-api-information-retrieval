@@ -3,6 +3,7 @@ Main CLI entry point
 """
 
 import asyncio
+import difflib
 import json
 import sys
 from datetime import datetime, timezone
@@ -156,9 +157,16 @@ def check(provider):
     p = get_provider_by_name(provider)
     if p is None:
         console.print(f"[red]✗[/red] Không tìm thấy provider '{provider}'.")
-        console.print(
-            f"[dim]Các provider khả dụng: {', '.join(x.name for x in KNOWN_PROVIDERS)}[/dim]"
+        # Gợi ý provider gần đúng (fuzzy match) — giúp người dùng sửa typo
+        close_names = difflib.get_close_matches(
+            provider.lower(), [x.name.lower() for x in KNOWN_PROVIDERS], n=3, cutoff=0.6
         )
+        if close_names:
+            display_names = [
+                found.name for name in close_names if (found := get_provider_by_name(name))
+            ]
+            console.print(f"[yellow]Bạn có ý là:[/yellow] {', '.join(display_names)}")
+        console.print(f"[dim]Tất cả provider: {', '.join(x.name for x in KNOWN_PROVIDERS)}[/dim]")
         sys.exit(1)
 
     console.print(f"[dim]Đang kiểm tra {p.name} ({p.base_url})...[/dim]")
