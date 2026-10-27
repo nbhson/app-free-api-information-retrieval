@@ -67,7 +67,7 @@ branch = true
 omit = ["**/__pycache__/**", "**/venv/**"]
 
 [tool.coverage.report]
-exclude-lines = [
+exclude_also = [
     "pragma: no cover",
     "if __name__ == .__main__.:",
 ]
