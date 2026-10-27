@@ -25,6 +25,13 @@ python3 -m venv venv
 ./venv/bin/pip install -r requirements.txt
 ```
 
+Hoặc dùng Docker:
+
+```bash
+docker compose run app list
+docker compose run app list --verify
+```
+
 ## Sử dụng
 
 ```bash
@@ -104,25 +111,52 @@ src/
 
 ## Provider hiện có (15)
 
-| Provider | Free tier | OpenAI-compatible |
-|----------|-----------|-------------------|
-| OpenRouter | ✅ (:free models) | ✅ |
-| Groq | ✅ | ✅ |
-| Google Gemini | ✅ | ❌ (custom) |
-| Mistral AI | ✅ | ✅ |
-| Cohere | ✅ (trial) | ❌ (custom) |
-| Together AI | ✅ | ✅ |
-| Hugging Face | ✅ | ❌ (custom) |
-| Anthropic | 💰 ($5 credits) | ❌ (custom) |
-| Perplexity | 💰 ($5 credits) | ✅ |
-| Fireworks AI | ✅ | ✅ |
-| SiliconFlow | 💰 (credits) | ✅ |
-| DeepSeek | 💰 (500M tokens) | ✅ |
-| Novu.ai | ⚠️ unknown | ✅ |
-| Leiku AI | ⚠️ unknown | ✅ |
-| OpenChat | ⚠️ unknown | ✅ |
+| Provider | Free tier | OpenAI-compatible | Ghi chú |
+|----------|-----------|-------------------|---------|
+| OpenRouter | ✅ (:free models) | ✅ | |
+| Groq | ✅ | ✅ | |
+| Google Gemini | ✅ | ❌ (custom) | |
+| Mistral AI | ✅ (thí điểm) | ✅ | |
+| Cohere | ✅ (trial key) | ❌ (custom) | |
+| Together AI | ✅ | ✅ | |
+| Hugging Face | ✅ | ❌ (custom) | serverless |
+| Fireworks AI | ✅ | ✅ | |
+| SiliconFlow | ⚠️ free + credits | ✅ | model nhỏ free |
+| Anthropic | 💰 trial-only | ❌ (anthropic) | $5 credits |
+| Perplexity | 💰 trial-only | ✅ | $5 credits |
+| DeepSeek | 💰 trial-only | ✅ | 500M tokens |
+| Novu.ai | ⚠️ unverified | ✅ | có thể đã chết |
+| Leiku AI | ⚠️ unverified | ✅ | no-auth |
+| OpenChat | ⚠️ unverified | ✅ | |
 
 ## Đóng góp
 
 Muốn thêm provider mới? Sửa `src/discovery/providers_part2.py` và thêm entry
 theo format `Provider(...)`. Sau đó chạy `update` để verify.
+
+## Phát triển (Enterprise)
+
+```bash
+# Cài dev dependencies (pytest, ruff, ...)
+./venv/bin/pip install -e ".[dev]"
+
+# Chạy test suite (71 tests)
+./venv/bin/python -m pytest tests/ --cov=src
+
+# Lint + format
+./venv/bin/ruff check src/ tests/
+./venv/bin/ruff format src/ tests/
+
+# Docker
+docker compose run app list
+```
+
+CI tự chạy trên GitHub Actions: lint (ruff) → test matrix (Python 3.10–3.13,
+coverage ≥ 85%) → CLI smoke test. Xem `.github/workflows/ci.yml`.
+
+Lưu ý về dữ liệu registry:
+- Provider tag `trial-only` = chỉ có credits khởi tạo, KHÔNG free lâu dài
+  (`is_free=False` trên models).
+- Provider tag `unverified` = chưa xác minh, endpoint có thể đã chết.
+- Test `tests/test_discovery.py` đảm bảo nhất quán free/paid — nếu thêm provider
+  sai tag, test sẽ fail.

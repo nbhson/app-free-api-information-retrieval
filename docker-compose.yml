@@ -1,0 +1,11 @@
+services:
+  app:
+    build: .
+    image: free-llm-provider-discovery:latest
+    # Chạy lệnh mặc định; override bằng: docker compose run app list --verify
+    command: ["list"]
+    volumes:
+      # Lưu output data ra host
+      - ./data:/app/data
+    env_file:
+      - .env
