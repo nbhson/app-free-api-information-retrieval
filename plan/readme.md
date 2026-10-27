@@ -111,35 +111,35 @@ src/
 ### Phase 2 — Sửa BUG nghiêm trọng (~1.5h)
 **Mục tiêu: hết mọi BUG được phát hiện ở mục 2**
 
-- [ ] B1: Fix `live.py` — dùng đúng `base_url` param, test được với URL tuỳ ý
-- [ ] B2: Rewrite `logging_config.py` — idempotent setup, handler level sync, có test
-- [ ] B3: Rewrite `_extract_json` dùng `json.JSONDecoder().raw_decode` — handles string chứa brace
-- [ ] B4: `ai_agent.py` — retry cho 429/5xx với backoff
-- [ ] B5: `checker.py` — retry cho 429 + 5xx tạm thời
-- [ ] B6: `checker.py` — thu hẹp `except Exception` xuống `httpx.RequestError`, log chi tiết lỗi
-- [ ] B7: Tạo `src/__version__.py` (single source of truth), đọc từ pyproject
-- [ ] B8: Xoá duplicate import `json` trong `health`
-- [ ] B9: `ProviderList.version` default lấy từ `__version__`
-- [ ] B10: Validate `AI_TIMEOUT > 0` trong `config.py`
-- [ ] B11: Rename `validate()` → `validation_errors()`
-- [ ] B12: Xoá dead code `_provider_to_dict`
-- [ ] B13: Xuất `version` field trong JSON/YAML
+- [x] B1: Fix `live.py` — dùng đúng `base_url` param, test được với URL tuỳ ý
+- [x] B2: Rewrite `logging_config.py` — idempotent setup, handler level sync, có test
+- [x] B3: Rewrite `_extract_json` dùng `json.JSONDecoder().raw_decode` — handles string chứa brace
+- [x] B4: `ai_agent.py` — retry cho 429/5xx với backoff
+- [x] B5: `checker.py` — retry cho 429 + 5xx tạm thời
+- [x] B6: `checker.py` — thu hẹp `except Exception` xuống `httpx.RequestError`, log chi tiết lỗi
+- [x] B7: Tạo `src/__version__.py` (single source of truth), đọc từ pyproject
+- [x] B8: Xoá duplicate import `json` trong `health`
+- [x] B9: `ProviderList.version` default lấy từ `__version__`
+- [x] B10: Validate `AI_TIMEOUT > 0` trong `config.py`
+- [x] B11: Rename `validate()` → `validation_errors()`
+- [x] B12: Xoá dead code `_provider_to_dict`
+- [x] B13: Xuất `version` field trong JSON/YAML
 - [ ] Viết test cho mọi fix, chạy full test + ruff
 - [ ] **Commit + Self-Review**
 
 ### Phase 3 — Enterprise Infra (~2h)
-- [ ] E1: Thêm `LICENSE` (MIT)
-- [ ] E2: Thêm `SECURITY.md`
-- [ ] E3: Thêm `CONTRIBUTING.md`
-- [ ] E4: Thêm `.pre-commit-config.yaml` (ruff, ruff-format, yaml/toml checks, end-of-file)
-- [ ] E5: Thêm mypy vào CI + type hint chuẩn hoá
-- [ ] E6: Nâng coverage gate 85% → 90%
-- [ ] E7: Thêm `src/__main__.py` để chạy `python -m src`
-- [ ] E8: Dockerfile: thêm `HEALTHCHECK`, pin base image digest, cache pip, `.dockerignore`
-- [ ] E9: Pin deps: tạo `constraints.txt` hoặc cập nhật `requirements.txt` với min version cụ thể
-- [ ] E10: Thêm `[project.urls]` vào pyproject.toml
-- [ ] E11: Thêm `--version` flag cho CLI
-- [ ] E12: Thêm `.dockerignore`
+- [x] (E1) Thêm `LICENSE` (MIT)
+- [x] (E2) Thêm `SECURITY.md`
+- [x] (E3) Thêm `CONTRIBUTING.md`
+- [x] (E4) Thêm `.pre-commit-config.yaml` (ruff, ruff-format, yaml/toml checks, end-of-file)
+- [x] (E5) Thêm mypy vào CI + type hint chuẩn hoá
+- [x] (E6) Nâng coverage gate 85% → 90%
+- [x] (E7) Thêm `src/__main__.py` để chạy `python -m src`
+- [x] (E8) Dockerfile: thêm `HEALTHCHECK`, pin base image digest, cache pip, `.dockerignore`
+- [x] (E9) Pin deps: tạo `constraints.txt` hoặc cập nhật `requirements.txt` với min version cụ thể
+- [x] (E10) Thêm `[project.urls]` vào pyproject.toml
+- [x] (E11) Thêm `--version` flag cho CLI
+- [x] (E12) Thêm `.dockerignore`
 - [ ] Viết test cho phần mới
 - [ ] **Commit + Self-Review**
 
