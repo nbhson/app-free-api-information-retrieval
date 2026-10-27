@@ -207,6 +207,20 @@ class TestDiscoverAIDedup:
         assert "trùng lặp" in result.output or "không trả về" in result.output
 
 
+class TestVersionFlag:
+    def test_version_flag_shows_version(self, runner):
+        """CLI phải có --version flag lấy version từ single source."""
+        from src.__version__ import __version__
+
+        result = runner.invoke(cli, ["--version"])
+        assert result.exit_code == 0
+        assert __version__ in result.output
+
+    def test_cli_version_shows_prog_name(self, runner):
+        result = runner.invoke(cli, ["--version"])
+        assert "free-llm-provider-discovery" in result.output
+
+
 class TestVerboseFlag:
     def test_list_verbose_flag_accepted(self, runner):
         result = runner.invoke(cli, ["list", "--verbose"])

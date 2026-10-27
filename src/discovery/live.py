@@ -9,13 +9,14 @@ Dữ liệu trả về là trạng thái THỜI ĐIỂM GỌI — luôn mới h�
 import httpx
 from rich.console import Console
 
+from src.__version__ import __version__
 from src.models import APIStyle, AuthType, Model, Provider, ProviderStatus
 
 console = Console()
 
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
-
-_HEADERS = {"User-Agent": "free-llm-provider-discovery/1.1"}
+DEFAULT_TIMEOUT = 15.0
+LIVE_HEADERS = {"User-Agent": f"free-llm-provider-discovery/{__version__}"}
 
 
 class LiveDiscoveryError(Exception):
@@ -48,24 +49,28 @@ def _parse_free_models(data: dict) -> list[Model]:
 
 
 def fetch_openrouter_free_models(
-    timeout: float = 15.0, base_url: str = OPENROUTER_MODELS_URL
+    timeout: float = DEFAULT_TIMEOUT, base_url: str = OPENROUTER_MODELS_URL
 ) -> list[Model]:
     """
     Gọi OpenRouter /models (public, không cần key) và trả về models free thật.
+
+    Args:
+        timeout: Số giây tối đa chờ response.
+        base_url: URL endpoint /models — có thể override để test.
 
     Raises:
         LiveDiscoveryError: khi network lỗi hoặc response sai schema.
     """
     try:
-        resp = httpx.get(OPENROUTER_MODELS_URL, timeout=timeout, headers=_HEADERS)
+        resp = httpx.get(base_url, timeout=timeout, headers=LIVE_HEADERS)
         resp.raise_for_status()
         data = resp.json()
     except httpx.TimeoutException as e:
-        raise LiveDiscoveryError(f"Timeout sau {timeout}s khi gọi {OPENROUTER_MODELS_URL}") from e
+        raise LiveDiscoveryError(f"Timeout sau {timeout}s khi gọi {base_url}") from e
     except httpx.HTTPStatusError as e:
-        raise LiveDiscoveryError(f"HTTP {e.response.status_code} từ {OPENROUTER_MODELS_URL}") from e
+        raise LiveDiscoveryError(f"HTTP {e.response.status_code} từ {base_url}") from e
     except (httpx.HTTPError, ValueError) as e:
-        raise LiveDiscoveryError(f"Lỗi khi gọi {OPENROUTER_MODELS_URL}: {e}") from e
+        raise LiveDiscoveryError(f"Lỗi khi gọi {base_url}: {e}") from e
 
     try:
         return _parse_free_models(data)

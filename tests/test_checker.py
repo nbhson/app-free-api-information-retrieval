@@ -47,21 +47,74 @@ class TestVerifyProvider:
         result = asyncio.run(verify_provider(sample_provider))
         assert result.status == ProviderStatus.ACTIVE
 
-    def test_429_is_rate_limited(self, sample_provider, monkeypatch):
+    def test_429_retries_then_rate_limited(self, sample_provider, monkeypatch):
+        """429 phải được retry trước khi trả về RATE_LIMITED."""
+        calls = {"n": 0}
+
         def handler(request):
+            calls["n"] += 1
             return httpx.Response(429)
 
         monkeypatch.setattr(checker.httpx, "AsyncClient", lambda **kw: _transport(handler))
-        result = asyncio.run(verify_provider(sample_provider))
+        result = asyncio.run(verify_provider(sample_provider, retries=1))
+        assert calls["n"] == 2
         assert result.status == ProviderStatus.RATE_LIMITED
 
-    def test_500_is_inactive(self, sample_provider, monkeypatch):
+    def test_429_recovers_on_retry(self, sample_provider, monkeypatch):
+        """429 ở lần đầu, 200 ở lần sau → ACTIVE (retry có tác dụng)."""
+        calls = {"n": 0}
+
         def handler(request):
-            return httpx.Response(500)
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return httpx.Response(429)
+            return httpx.Response(200)
 
         monkeypatch.setattr(checker.httpx, "AsyncClient", lambda **kw: _transport(handler))
         result = asyncio.run(verify_provider(sample_provider))
+        assert result.status == ProviderStatus.ACTIVE
+        assert calls["n"] == 2
+
+    def test_500_retries_then_inactive(self, sample_provider, monkeypatch):
+        """HTTP 5xx là lỗi tạm thời — retry hết lượt rồi mới INACTIVE."""
+        calls = {"n": 0}
+
+        def handler(request):
+            calls["n"] += 1
+            return httpx.Response(500)
+
+        monkeypatch.setattr(checker.httpx, "AsyncClient", lambda **kw: _transport(handler))
+        result = asyncio.run(verify_provider(sample_provider, retries=2))
+        assert calls["n"] == 3  # 1 lần + 2 retries
         assert result.status == ProviderStatus.INACTIVE
+
+    def test_503_retries_then_inactive(self, sample_provider, monkeypatch):
+        """HTTP 503 là lỗi tạm thời — phải retry hết lượt rồi mới INACTIVE."""
+        calls = {"n": 0}
+
+        def handler(request):
+            calls["n"] += 1
+            return httpx.Response(503)
+
+        monkeypatch.setattr(checker.httpx, "AsyncClient", lambda **kw: _transport(handler))
+        result = asyncio.run(verify_provider(sample_provider, retries=2))
+        assert calls["n"] == 3  # 1 lần + 2 retries
+        assert result.status == ProviderStatus.INACTIVE
+
+    def test_503_recovers_on_retry(self, sample_provider, monkeypatch):
+        """503 ở lần đầu, 200 ở lần sau → ACTIVE."""
+        calls = {"n": 0}
+
+        def handler(request):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return httpx.Response(503)
+            return httpx.Response(200)
+
+        monkeypatch.setattr(checker.httpx, "AsyncClient", lambda **kw: _transport(handler))
+        result = asyncio.run(verify_provider(sample_provider))
+        assert result.status == ProviderStatus.ACTIVE
+        assert calls["n"] == 2
 
     def test_connect_error_retries_then_inactive(self, sample_provider, monkeypatch):
         calls = {"n": 0}

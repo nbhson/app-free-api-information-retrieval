@@ -13,6 +13,7 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 
+from src.__version__ import __version__
 from src.aggregation.aggregator import (
     aggregate_providers,
     save_to_json,
@@ -72,9 +73,9 @@ def _print_provider_table(providers, show_all_models: bool = False) -> None:
 
 
 @click.group()
+@click.version_option(version=__version__, prog_name="free-llm-provider-discovery")
 def cli():
     """Free LLM Provider Discovery - Tìm và kiểm tra các LLM API miễn phí."""
-    pass
 
 
 @cli.command()
@@ -277,8 +278,6 @@ def discover_live_cmd(output, show_all_models):
 @click.option("--output", "-o", type=str, default=None, help="Lưu JSON ra file")
 def health(output):
     """Kiểm tra nhanh sức khoẻ của hệ thống (registry + config)."""
-    import json
-
     results = {
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -290,7 +289,7 @@ def health(output):
             ),
         },
         "ai_configured": get_ai_config().is_configured(),
-        "version": "1.2.0",
+        "version": __version__,
     }
 
     # Check xem có provider nào chưa verify không

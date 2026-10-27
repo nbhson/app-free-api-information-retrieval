@@ -59,6 +59,15 @@ class TestExtractJson:
         with pytest.raises(ValueError):
             _extract_json('{"a": 1')
 
+    def test_brace_inside_string_value(self):
+        """Regression: JSON chứa { } trong string value phải parse đúng."""
+        text = '{"a": "value with } brace and { another", "b": 2}'
+        assert _extract_json(text) == {"a": "value with } brace and { another", "b": 2}
+
+    def test_non_object_raises(self):
+        with pytest.raises(ValueError):
+            _extract_json("[1, 2, 3]")
+
 
 class TestParseProviders:
     def test_valid_entry(self):
@@ -123,3 +132,48 @@ class TestDiscoverWithAI:
         with pytest.raises(AIDiscoveryError, match="Timeout"):
             discover_with_ai(config=_make_config(), max_retries=2)
         assert calls["n"] == 3
+
+    def test_retries_on_429_then_raises(self, monkeypatch):
+        """HTTP 429 là lỗi tạm thời — phải retry hết lượt rồi mới raise."""
+        calls = {"n": 0}
+
+        def fake_post(url, **kw):
+            calls["n"] += 1
+            return httpx.Response(429, request=httpx.Request("POST", url))
+
+        monkeypatch.setattr(ai_agent.httpx, "post", fake_post)
+        with pytest.raises(AIDiscoveryError, match="429"):
+            discover_with_ai(config=_make_config(), max_retries=2)
+        assert calls["n"] == 3
+
+    def test_recovers_on_429(self, monkeypatch):
+        """429 ở lần đầu, thành công ở lần sau → trả về providers."""
+        calls = {"n": 0}
+
+        def fake_post(url, **kw):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return httpx.Response(429, request=httpx.Request("POST", url))
+            content = json.dumps(VALID_RESPONSE)
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": content}}]},
+                request=httpx.Request("POST", url),
+            )
+
+        monkeypatch.setattr(ai_agent.httpx, "post", fake_post)
+        providers = discover_with_ai(config=_make_config())
+        assert len(providers) == 1
+
+    def test_retries_on_5xx(self, monkeypatch):
+        """HTTP 500 là lỗi tạm thời — phải retry, không raise ngay."""
+        calls = {"n": 0}
+
+        def fake_post(url, **kw):
+            calls["n"] += 1
+            return httpx.Response(503, request=httpx.Request("POST", url))
+
+        monkeypatch.setattr(ai_agent.httpx, "post", fake_post)
+        with pytest.raises(AIDiscoveryError, match="503"):
+            discover_with_ai(config=_make_config(), max_retries=1)
+        assert calls["n"] == 2  # 1 lần + 1 retry

@@ -44,28 +44,26 @@ Lưu ý:
 
 
 def _extract_json(text: str) -> dict:
-    """Trích xuất JSON từ response của LLM (xử lý cả markdown fence)."""
+    """Trích xuất JSON từ response của LLM (xử lý cả markdown fence và brace trong string)."""
     # Bỏ markdown code fence nếu có
     fence_match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
     if fence_match:
         text = fence_match.group(1)
 
-    # Tìm object JSON đầu tiên
+    # Tìm object JSON đầu tiên và dùng json.JSONDecoder.raw_decode
+    # để parse chính xác ngay cả khi value chứa ký tự { } bên trong chuỗi
     brace_start = text.find("{")
     if brace_start == -1:
         raise ValueError("Không tìm thấy JSON trong response của AI")
 
-    # Tìm matching brace cuối
-    depth = 0
-    for i in range(brace_start, len(text)):
-        if text[i] == "{":
-            depth += 1
-        elif text[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return json.loads(text[brace_start : i + 1])
-
-    raise ValueError("JSON không hợp lệ (thiếu dấu đóng)")
+    decoder = json.JSONDecoder()
+    try:
+        obj, _ = decoder.raw_decode(text[brace_start:])
+        if not isinstance(obj, dict):
+            raise ValueError(f"JSON parse ra {type(obj).__name__}, kỳ vọng object/dict")
+        return obj
+    except json.JSONDecodeError as e:
+        raise ValueError(f"JSON không hợp lệ: {e}") from e
 
 
 def _parse_providers(data: dict) -> list[Provider]:
@@ -128,7 +126,7 @@ def discover_with_ai(config: AIConfig | None = None, max_retries: int = 2) -> li
         AIDiscoveryError: khi config thiếu, API lỗi, hoặc response sai schema.
     """
     config = config or get_ai_config()
-    errors = config.validate()
+    errors = config.validation_errors()
     if errors:
         raise AIDiscoveryError(
             "Chưa cấu hình AI provider. Tạo file .env từ .env.example:\n  " + "\n  ".join(errors)
@@ -162,8 +160,19 @@ def discover_with_ai(config: AIConfig | None = None, max_retries: int = 2) -> li
                 raise AIDiscoveryError("API key sai hoặc hết hạn (HTTP 401)")
             if resp.status_code == 403:
                 raise AIDiscoveryError("Không có quyền truy cập (HTTP 403)")
-            if resp.status_code == 429:
-                raise AIDiscoveryError("Bị rate limit (HTTP 429), thử lại sau")
+            # 429/5xx là lỗi tạm thời — retry với backoff thay vì raise ngay
+            if resp.status_code == 429 or resp.status_code >= 500:
+                last_error = (
+                    f"HTTP {resp.status_code} từ {url} (lỗi tạm thời)"
+                    if resp.status_code == 429
+                    else f"HTTP {resp.status_code} (server error) từ {url}"
+                )
+                if attempt < max_retries:
+                    console.print(
+                        f"[yellow]⚠ Lần {attempt + 1} lỗi: {last_error}. Thử lại...[/yellow]"
+                    )
+                    continue
+                raise AIDiscoveryError(last_error)
             resp.raise_for_status()
 
             data = resp.json()

@@ -4,6 +4,8 @@ Cấu hình ứng dụng — dùng Pydantic Settings (chuẩn enterprise).
 Load từ .env / environment variables, có validation và type-safety.
 """
 
+from __future__ import annotations
+
 from functools import lru_cache
 from pathlib import Path
 
@@ -35,11 +37,18 @@ class AIConfig(BaseSettings):
             raise ValueError("AI_PROVIDER_BASE_URL phải bắt đầu bằng http:// hoặc https://")
         return v.rstrip("/")
 
+    @field_validator("timeout")
+    @classmethod
+    def _validate_timeout(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("AI_TIMEOUT phải > 0")
+        return v
+
     def is_configured(self) -> bool:
         """Kiểm tra đã có đủ config chưa."""
         return bool(self.base_url and self.api_key and self.model)
 
-    def validate(self) -> list[str]:
+    def validation_errors(self) -> list[str]:
         """Validate config, trả về list lỗi (rỗng = OK)."""
         errors: list[str] = []
         if not self.base_url:
@@ -48,6 +57,8 @@ class AIConfig(BaseSettings):
             errors.append("AI_API_KEY chưa được set")
         if not self.model:
             errors.append("AI_MODEL chưa được set")
+        if self.timeout <= 0:
+            errors.append("AI_TIMEOUT phải > 0")
         return errors
 
 

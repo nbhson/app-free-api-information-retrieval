@@ -46,7 +46,13 @@ class TestProviderList:
     def test_total_count_auto(self, sample_providers):
         pl = ProviderList(providers=sample_providers)
         assert pl.total_count == 2
-        assert pl.version == "1.0.0"
+
+    def test_version_single_sourced(self, sample_providers):
+        """Version phải lấy từ src.__version__ (single source of truth)."""
+        from src.__version__ import __version__
+
+        pl = ProviderList(providers=sample_providers)
+        assert pl.version == __version__
 
     def test_last_updated_is_timezone_aware(self, sample_providers):
         pl = ProviderList(providers=sample_providers)

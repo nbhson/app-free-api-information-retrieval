@@ -7,6 +7,8 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+from src.__version__ import __version__
+
 
 class ProviderStatus(str, Enum):
     """Trạng thái của provider"""
@@ -70,7 +72,7 @@ class ProviderList(BaseModel):
 
     providers: list[Provider] = Field(default_factory=list)
     last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    version: str = Field("1.0.0")
+    version: str = Field(default_factory=lambda: __version__)
     total_count: int = Field(0)
 
     def model_post_init(self, __context):

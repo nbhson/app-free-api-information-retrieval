@@ -30,12 +30,27 @@ class TestAIConfig:
 
     def test_validate_lists_missing_fields(self):
         cfg = AIConfig(AI_PROVIDER_BASE_URL="", AI_API_KEY="k", AI_MODEL="")
-        errors = cfg.validate()
+        errors = cfg.validation_errors()
         assert len(errors) == 2  # base_url + api_key (model được set nên không lỗi)
 
     def test_validate_ok_when_configured(self):
         cfg = AIConfig(AI_PROVIDER_BASE_URL="https://x.com/v1", AI_API_KEY="k", AI_MODEL="m")
-        assert cfg.validate() == []
+        assert cfg.validation_errors() == []
+
+    def test_timeout_must_be_positive(self):
+        with pytest.raises(ValidationError):
+            AIConfig(
+                AI_PROVIDER_BASE_URL="https://x.com/v1", AI_API_KEY="k", AI_MODEL="m", AI_TIMEOUT=0
+            )
+
+    def test_negative_timeout_rejected(self):
+        with pytest.raises(ValidationError):
+            AIConfig(
+                AI_PROVIDER_BASE_URL="https://x.com/v1",
+                AI_API_KEY="k",
+                AI_MODEL="m",
+                AI_TIMEOUT=-5,
+            )
 
 
 class TestGetAiConfig:
