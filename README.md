@@ -1,5 +1,11 @@
 # Free LLM Provider Discovery
 
+[![CI](https://github.com/nguyenson/app-free-api-information-retrieval/actions/workflows/ci.yml/badge.svg)](https://github.com/nguyenson/app-free-api-information-retrieval/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-261230)](https://github.com/astral-sh/ruff)
+[![Coverage](https://img.shields.io/badge/coverage-92%25-brightgreen)](#phát-triển-enterprise)
+
 CLI tool để **khám phá, kiểm tra và tổng hợp** danh sách các nhà cung cấp API LLM miễn phí.
 
 ## ⚠️ Ứng dụng hoạt động thế nào?
@@ -127,6 +133,40 @@ So sánh 3 chế độ discovery:
 | `discover-ai` | Trí nhớ của LLM | ✅ (AI key) | Cũ (training data) |
 | `discover-live` | **OpenRouter API trực tiếp** | ❌ | **Mới nhất** ✅ |
 
+## Kiến trúc (Architecture)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                           CLI (Click + Rich)                     │
+│  list · check · update · discover-ai · discover-live · health    │
+└───────┬──────────────┬──────────────┬──────────────────┬────────┘
+        │              │              │                  │
+        ▼              ▼              ▼                  ▼
+┌──────────────┐ ┌───────────┐ ┌─────────────┐ ┌────────────────┐
+│  DISCOVERY   │ │VERIFICATION│ │AGGREGATION  │ │   OUTPUT       │
+│              │ │            │ │             │ │                │
+│ • Registry   │→│ Async      │→│ ProviderList│→│ JSON / YAML    │
+│   (curate)   │ │ checker    │ │ ProviderList│ │ console table  │
+│   15 curated │ │ semaphore 5│ │ filter free │ │ file output    │
+│   providers  │ │ retry 429/ │ │ version     │ │                │
+│              │ │ backoff    │ │             │ │                │
+│ • AI Agent   │ │            │ │             │ │                │
+│   (LLM-based)│ │            │ │             │ │                │
+│ • Live       │ │            │ │             │ │                │
+│   (OpenRouter│ │            │ │             │ │                │
+│    API thật) │ │            │ │             │ │                │
+└──────────────┘ └───────────┘ └─────────────┘ └────────────────┘
+        │                                            │
+        └────────────── src/models.py ────────────────┘
+              (Pydantic: Provider, Model, ProviderList)
+```
+
+**Data flow:**
+1. `discovery/` sinh ra list `Provider` (registry cứng, AI, hoặc live API)
+2. `verification/checker.py` ping song song (semaphore 5, retry 429/5xx) → status ACTIVE/INACTIVE/RATE_LIMITED
+3. `aggregation/aggregator.py` gom thành `ProviderList` (version + timestamp)
+4. Xuất JSON/YAML, chỉ giữ model free (`only_free=True` default)
+
 ## Cấu trúc project
 
 ```
@@ -173,6 +213,66 @@ src/
 Muốn thêm provider mới? Sửa `src/discovery/providers_part2.py` và thêm entry
 theo format `Provider(...)`. Sau đó chạy `update` để verify.
 
+## Đóng góp
+
+Muốn thêm provider mới? Sửa `src/discovery/providers_part2.py` và thêm entry
+theo format `Provider(...)`. Sau đó chạy `update` để verify.
+
+Xem chi tiết quy trình trong [CONTRIBUTING.md](CONTRIBUTING.md).
+Báo cáo lỗ hổng bảo mật: [SECURITY.md](SECURITY.md).
+
+## Troubleshooting
+
+### `discover-ai` báo "Chưa cấu hình AI provider"
+→ Bạn chưa tạo file `.env`. Copy từ `.env.example` và điền API key:
+```bash
+cp .env.example .env
+# sửa .env, điền AI_PROVIDER_BASE_URL / AI_API_KEY / AI_MODEL
+```
+
+### `check --provider` báo "Không tìm thấy"
+CLI có gợi ý fuzzy — chạy lệnh và xem dòng "Bạn có ý là:" để sửa typo.
+Xem danh sách đầy đủ: `run.py list`.
+
+### `list --verify` thoát với exit code 1
+Có provider endpoint chết — đây là hành vi đúng (để CI/hooks phát hiện).
+Dùng `run.py list` (không `--verify`) nếu chỉ cần xem danh sách.
+
+### Timeout khi chạy `discover-live`
+Mặc định timeout 15s. Nếu mạng chậm, tăng qua code:
+```python
+from src.discovery.live import fetch_openrouter_free_models
+fetch_openrouter_free_models(timeout=30.0)
+```
+
+### Docker: `.env` không được mount
+`docker-compose.yml` dùng `env_file: .env` — đảm bảo file tồn tại trước khi
+chạy `docker compose up`. Nếu chưa có, tạo từ `.env.example`.
+
+## FAQ
+
+**Q: Tool có spam các endpoint provider không?**
+A: Không. Verification chỉ gửi 1 GET request nhẹ tới `/models` cho mỗi provider,
+giới hạn 5 request song song, retry tối đa 2 lần với exponential backoff.
+
+**Q: `discover-ai` và `discover-live` khác nhau thế nào?**
+A: `discover-ai` hỏi LLM (dựa trên training data — có thể sai/thiếu).
+`discover-live` query trực tiếp OpenRouter API — dữ liệu thật tại thời điểm gọi.
+Muốn dữ liệu đáng tin nhất → `discover-live`.
+
+**Q: Tôi có cần API key để chạy không?**
+A: Không. `list`, `check`, `update`, `discover-live`, `health` chạy không cần key.
+Chỉ `discover-ai` cần AI key (trong `.env`).
+
+**Q: Kết quả `discover-ai` có đáng tin không?**
+A: KHÔNG hoàn toàn. LLM có thể "bịa" provider không tồn tại. Hãy luôn chạy
+`--verify` sau khi dùng `discover-ai`, hoặc dùng `discover-live` cho dữ liệu thật.
+
+**Q: Version được quản lý thế nào?**
+A: Single source of truth trong `pyproject.toml`. `src/__version__.py` đọc từ
+importlib.metadata (nếu đã pip install) hoặc parse trực tiếp pyproject.toml.
+CLI `run.py --version` hiển thị version hiện tại.
+
 ## Exit Codes
 
 | Code | Ý nghĩa |
@@ -184,25 +284,35 @@ theo format `Provider(...)`. Sau đó chạy `update` để verify.
 ## Phát triển (Enterprise)
 
 ```bash
-# Cài dev dependencies (pytest, ruff, ...)
+# Cài dev dependencies (pytest, ruff, mypy, ...)
 pip install -r requirements-dev.txt
 
-# Chạy test suite (103 tests)
+# Chạy test suite (129 tests, coverage ≥ 90%)
 ./venv/bin/python -m pytest tests/ --cov=src
 
 # Lint + format
 ./venv/bin/ruff check src/ tests/
 ./venv/bin/ruff format src/ tests/
 
-# Health check
-./venv/bin/python run.py health
+# Type check
+./venv/bin/python -m mypy src/
+
+# Pre-commit hooks (tự động chạy trước mỗi commit)
+pip install pre-commit && pre-commit install
+pre-commit run --all-files  # chạy trên toàn repo
 
 # Docker
 docker compose run app list
 ```
 
-CI tự chạy trên GitHub Actions: lint (ruff) → test matrix (Python 3.10–3.13,
-coverage ≥ 85%) → CLI smoke test. Xem `.github/workflows/ci.yml`.
+CI tự chạy trên GitHub Actions với 5 jobs:
+1. **Lint** — ruff check + format check
+2. **Type check** — mypy với pydantic plugin
+3. **Test** — matrix Python 3.10–3.13, coverage gate ≥ 90%
+4. **CLI Smoke Test** — list, json output, --version, health
+5. **Docker Build** — build image + smoke test trong container
+
+Xem `.github/workflows/ci.yml`.
 
 Lưu ý về dữ liệu registry:
 - Provider tag `trial-only` = chỉ có credits khởi tạo, KHÔNG free lâu dài

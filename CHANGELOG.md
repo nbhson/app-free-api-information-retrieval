@@ -4,6 +4,37 @@ Tất cả thay đổi quan trọng của project được ghi nhận trong file
 Format dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning theo [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] — 2026-10-28
+
+### Fixed
+- **live.py**: dead param `base_url` giờ được dùng thật (trước luôn dùng constant)
+- **logging_config.py**: `setup_logging` giờ idempotent — sync handler level, không duplicate handler
+- **ai_agent.py**: `_extract_json` dùng `JSONDecoder.raw_decode` — parse đúng khi string chứa `{ }`
+- **ai_agent.py**: HTTP 429/5xx được retry với backoff (trước raise ngay)
+- **checker.py**: HTTP 429/5xx được retry với exponential backoff
+- **checker.py**: log chi tiết lỗi + safety net không crash cả batch verify
+- **config.py**: validate `AI_TIMEOUT > 0`
+- **config.py**: rename `validate()` → `validation_errors()` (không shadow BaseModel.validate)
+- **aggregator.py**: xoá dead code `_provider_to_dict`; payload JSON/YAML giờ có field `version`
+- **Single source of truth cho version**: `src/__version__.py` — CLI `--version`, health report, output file, User-Agent header đều đọc từ 1 nguồn
+
+### Added
+- **CLI `--version` flag** — hiển thị version từ single source
+- **`python -m src`** — chạy module trực tiếp (`src/__main__.py`)
+- **Fuzzy suggestion** khi `check --provider` gõ sai tên (difflib)
+- **Retry với exponential backoff cho `discover-live`** (429/5xx/timeout)
+- **LICENSE** (MIT), **SECURITY.md**, **CONTRIBUTING.md**
+- **`.pre-commit-config.yaml`** — ruff + file hygiene + mypy hooks
+- **`.dockerignore`** — giảm image size
+- **Dockerfile HEALTHCHECK** + OCI labels
+- **mypy**: toàn bộ 17 files type-clean, pydantic plugin, chạy trong CI
+- **CI job mới**: typecheck (mypy), docker build + smoke test trong container
+
+### Changed
+- Coverage gate: 85% → **90%** (hiện tại 92%)
+- CI: 3 jobs → 5 jobs (thêm mypy + docker)
+- `ProviderList.version` default lấy từ `__version__` (trước hardcode "1.0.0")
+
 ## [1.2.0] — 2026-10-28
 
 ### Added
