@@ -42,13 +42,14 @@ OPENROUTER = Provider(
 )
 
 # ─── GROQ ───
+# Lưu ý: Groq đã ngừng một số model cũ (mixtral-8x7b-32768, gemma2-9b-it).
+# Danh sách này cần cập nhật định kỳ bằng lệnh: python run.py update
 GROQ_MODELS = [
     Model(id="llama-3.1-8b-instant", name="Llama 3.1 8B Instant", is_free=True,
-          context_length=131072, supports_streaming=True),
+          context_length=131072, supports_streaming=True,
+          description="Model chính free tier của Groq"),
     Model(id="llama-3.3-70b-versatile", name="Llama 3.3 70B Versatile", is_free=True,
           context_length=131072, supports_streaming=True),
-    Model(id="mixtral-8x7b-32768", name="Mixtral 8x7B", is_free=True,
-          context_length=32768, supports_streaming=True),
     Model(id="gemma2-9b-it", name="Gemma 2 9B IT", is_free=True,
           context_length=8192, supports_streaming=True),
     Model(id="llama3-groq-70b-8192-tool-use-preview", name="Llama3 70B Tool Use", is_free=True,

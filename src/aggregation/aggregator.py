@@ -4,7 +4,7 @@ Aggregator - Tổng hợp danh sách provider và xuất ra file
 
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 import yaml
@@ -16,7 +16,7 @@ def aggregate_providers(providers: List[Provider]) -> ProviderList:
     """Tổng hợp danh sách provider thành ProviderList"""
     return ProviderList(
         providers=providers,
-        last_updated=datetime.utcnow(),
+        last_updated=datetime.now(timezone.utc),
     )
 
 

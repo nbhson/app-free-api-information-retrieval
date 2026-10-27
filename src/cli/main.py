@@ -13,7 +13,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich import box
 
-from src.config import ai_config
+from src.config import get_ai_config
 from src.models import ProviderList, ProviderStatus
 from src.discovery import KNOWN_PROVIDERS, get_provider_by_name
 from src.discovery.ai_agent import discover_with_ai, AIDiscoveryError
@@ -97,6 +97,15 @@ def list_cmd(fmt, output, verify, show_all_models, tag, no_auth):
         console.print("[dim]Đang kiểm tra các endpoint...[/dim]")
         providers = asyncio.run(verify_all_providers(providers))
 
+    # Lưu ra file trước (nếu có --output) để mọi định dạng đều nhận được dữ liệu
+    if output:
+        provider_list = aggregate_providers(providers)
+        if output.endswith((".yaml", ".yml")):
+            path = save_to_yaml(provider_list, output)
+        else:
+            path = save_to_json(provider_list, output)
+        console.print(f"[green]✓[/green] Đã lưu vào [bold]{path}[/bold]")
+
     if fmt == "json":
         click.echo(json.dumps(
             [p.model_dump(mode="json") for p in providers],
@@ -110,14 +119,6 @@ def list_cmd(fmt, output, verify, show_all_models, tag, no_auth):
         return
 
     _print_provider_table(providers, show_all_models=show_all_models)
-
-    if output:
-        provider_list = aggregate_providers(providers)
-        if output.endswith(".yaml") or output.endswith(".yml"):
-            path = save_to_yaml(provider_list, output)
-        else:
-            path = save_to_json(provider_list, output)
-        console.print(f"[green]✓[/green] Đã lưu vào [bold]{path}[/bold]")
 
 
 @cli.command()
@@ -163,8 +164,9 @@ def update(output):
 def discover_ai(output, verify, show):
     """Dùng AI (.env config) để tìm kiếm provider miễn phí mới."""
     try:
-        console.print(f"[dim]Đang gọi AI ({ai_config.model} @ {ai_config.base_url})...[/dim]")
-        found = discover_with_ai()
+        cfg = get_ai_config()
+        console.print(f"[dim]Đang gọi AI ({cfg.model} @ {cfg.base_url})...[/dim]")
+        found = discover_with_ai(cfg)
     except AIDiscoveryError as e:
         console.print(f"[red]✗ Lỗi AI discovery:[/red]\n{e}")
         sys.exit(1)

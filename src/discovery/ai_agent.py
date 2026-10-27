@@ -9,7 +9,7 @@ from typing import List
 import httpx
 from rich.console import Console
 
-from src.config import ai_config, AIConfig
+from src.config import get_ai_config, AIConfig
 from src.models import Provider, Model, ProviderStatus, AuthType, APIStyle
 
 console = Console()
@@ -117,13 +117,14 @@ class AIDiscoveryError(Exception):
     """Lỗi khi chạy AI discovery."""
 
 
-def discover_with_ai(config: AIConfig = ai_config, max_retries: int = 2) -> List[Provider]:
+def discover_with_ai(config: AIConfig | None = None, max_retries: int = 2) -> List[Provider]:
     """
     Gọi LLM để tìm kiếm provider miễn phí mới.
 
     Raises:
         AIDiscoveryError: khi config thiếu, API lỗi, hoặc response sai schema.
     """
+    config = config or get_ai_config()
     errors = config.validate()
     if errors:
         raise AIDiscoveryError(

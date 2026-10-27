@@ -32,29 +32,32 @@ HUGGINGFACE = Provider(
 
 # ─── ANTHROPIC CLAUDE ───
 ANTHROPIC_MODELS = [
-    Model(id="claude-3-5-haiku-20241022", name="Claude 3.5 Haiku", is_free=True,
-          context_length=200000, supports_streaming=True),
+    Model(id="claude-3-5-haiku-20241022", name="Claude 3.5 Haiku", is_free=False,
+          context_length=200000, supports_streaming=True,
+          description="Không miễn phí lâu dài — chỉ dùng $5 credits khởi tạo"),
 ]
 
 ANTHROPIC = Provider(
     name="Anthropic Claude API",
     base_url="https://api.anthropic.com/v1",
     website="https://console.anthropic.com",
-    description="Cung cấp API key miễn phí $5 cho thử nghiệm. Sau đó cần card.",
+    description="KHÔNG có free tier lâu dài. Chỉ $5 credits miễn phí cho tài khoản mới, "
+                "hết credits cần thẻ tín dụng.",
     models=ANTHROPIC_MODELS,
     status=ProviderStatus.ACTIVE,
     auth_type=AuthType.API_KEY,
-    api_style=APIStyle.CUSTOM,
+    api_style=APIStyle.ANTHROPIC,
     auth_required=True,
     rate_limit="$5 credits miễn phí cho tài khoản mới",
-    tags=["free-credits", "popular"]
+    tags=["free-credits", "popular", "trial-only"]
 )
 
 # ─── PERPLEXITY ───
 PERPLEXITY_MODELS = [
-    Model(id="sonar", name="Sonar", is_free=True,
-          context_length=127072, supports_streaming=True),
-    Model(id="sonar-pro", name="Sonar Pro", is_free=True,
+    Model(id="sonar", name="Sonar", is_free=False,
+          context_length=127072, supports_streaming=True,
+          description="Không miễn phí lâu dài — chỉ dùng $5 credits khởi tạo"),
+    Model(id="sonar-pro", name="Sonar Pro", is_free=False,
           context_length=127072, supports_streaming=True),
 ]
 
@@ -62,14 +65,14 @@ PERPLEXITY = Provider(
     name="Perplexity API",
     base_url="https://api.perplexity.ai",
     website="https://perplexity.ai",
-    description="API cho web search engine. Key miễn phí $5 cho thử nghiệm.",
+    description="KHÔNG có free tier lâu dài. Chỉ $5 credits miễn phí cho tài khoản mới.",
     models=PERPLEXITY_MODELS,
     status=ProviderStatus.ACTIVE,
     auth_type=AuthType.API_KEY,
     api_style=APIStyle.OPENAI,
     auth_required=True,
     rate_limit="$5 credits miễn phí",
-    tags=["search", "free-credits"]
+    tags=["search", "free-credits", "trial-only"]
 )
 
 # ─── FIREWORKS AI ───
@@ -102,21 +105,23 @@ SILICONFLOW = Provider(
     name="SiliconFlow",
     base_url="https://api.siliconflow.cn/v1",
     website="https://siliconflow.cn",
-    description="API nền tảng Trung Quốc với nhiều model miễn phí. Cần card nhưng có credits.",
+    description="API nền tảng Trung Quốc, có một số model thực sự miễn phí (Qwen nhỏ, GLM). "
+                "Cần đăng ký để nhận credits.",
     models=SILICONFLOW_MODELS,
     status=ProviderStatus.ACTIVE,
     auth_type=AuthType.API_KEY,
     api_style=APIStyle.OPENAI,
     auth_required=True,
-    rate_limit="New users: credits miễn phí ban đầu",
-    tags=["china", "free-credits", "openai-compatible"]
+    rate_limit="Free tier cho model nhỏ, còn lại dùng credits",
+    tags=["china", "free-tier", "openai-compatible"]
 )
 
 # ─── DEEPSEEK ───
 DEEPSEEK_MODELS = [
-    Model(id="deepseek-chat", name="DeepSeek Chat", is_free=True,
-          context_length=64000, supports_streaming=True),
-    Model(id="deepseek-coder", name="DeepSeek Coder", is_free=True,
+    Model(id="deepseek-chat", name="DeepSeek Chat", is_free=False,
+          context_length=64000, supports_streaming=True,
+          description="Không miễn phí lâu dài — chỉ dùng 500M tokens khởi tạo"),
+    Model(id="deepseek-coder", name="DeepSeek Coder", is_free=False,
           context_length=16384, supports_streaming=True),
 ]
 
@@ -124,14 +129,14 @@ DEEPSEEK = Provider(
     name="DeepSeek API",
     base_url="https://api.deepseek.com/v1",
     website="https://platform.deepseek.com",
-    description="Mô hình của DeepSeek Trung Quốc. Rất rẻ, có trial credits.",
+    description="KHÔNG có free tier lâu dài. Rất rẻ, tặng 500M tokens cho tài khoản mới.",
     models=DEEPSEEK_MODELS,
     status=ProviderStatus.ACTIVE,
     auth_type=AuthType.API_KEY,
     api_style=APIStyle.OPENAI,
     auth_required=True,
     rate_limit="New users: 500M tokens miễn phí ban đầu",
-    tags=["china", "free-credits", "openai-compatible", "coder"]
+    tags=["china", "free-credits", "openai-compatible", "coder", "trial-only"]
 )
 
 # ─── NOvus AI ───
@@ -144,14 +149,14 @@ NOVUS = Provider(
     name="Novu.ai",
     base_url="https://api.novu.ai/v1",
     website="https://novu.ai",
-    description="Open-source model API với free tier. Đang phát triển.",
+    description="Open-source model API với free tier. ⚠️ CHƯA XÁC MINH — endpoint có thể đã chết.",
     models=NOVUS_MODELS,
     status=ProviderStatus.UNKNOWN,
     auth_type=AuthType.API_KEY,
     api_style=APIStyle.OPENAI,
     auth_required=True,
     rate_limit="Free tier giới hạn",
-    tags=["open-source", "free-tier"]
+    tags=["open-source", "free-tier", "unverified"]
 )
 
 # ─── LEIKU AI ───
@@ -164,14 +169,14 @@ LEIKU = Provider(
     name="Leiku AI",
     base_url="https://api.leiku.io/v1",
     website="https://leiku.io",
-    description="API miễn phí của cộng đồng AI Việt Nam.",
+    description="API miễn phí của cộng đồng AI Việt Nam. ⚠️ CHƯA XÁC MINH — endpoint có thể đã chết.",
     models=LEIKU_MODELS,
     status=ProviderStatus.UNKNOWN,
     auth_type=AuthType.NONE,
     api_style=APIStyle.OPENAI,
     auth_required=False,
     rate_limit="Không rõ",
-    tags=["vietnam", "free", "no-auth"]
+    tags=["vietnam", "free", "no-auth", "unverified"]
 )
 
 # ─── OPENCHAT ───
@@ -184,14 +189,14 @@ OPENCHAT = Provider(
     name="OpenChat",
     base_url="https://api.openchat.chat/v1",
     website="https://openchat.chat",
-    description="Cung cấp model OpenChat miễn phí qua API.",
+    description="Cung cấp model OpenChat miễn phí qua API. ⚠️ CHƯA XÁC MINH — endpoint có thể đã chết.",
     models=OPENCHAT_MODELS,
     status=ProviderStatus.UNKNOWN,
     auth_type=AuthType.API_KEY,
     api_style=APIStyle.OPENAI,
     auth_required=True,
     rate_limit="Free tier với daily limit",
-    tags=["open-source", "free-tier"]
+    tags=["open-source", "free-tier", "unverified"]
 )
 
 KNOWN_PROVIDERS_PART2: List[Provider] = [

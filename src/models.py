@@ -4,7 +4,7 @@ Data models cho Free LLM Provider Discovery
 
 from pydantic import BaseModel, Field
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 
@@ -63,7 +63,8 @@ class Provider(BaseModel):
 class ProviderList(BaseModel):
     """Danh sách provider"""
     providers: List[Provider] = Field(default_factory=list)
-    last_updated: datetime = Field(default_factory=datetime.utcnow)
+    last_updated: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc))
     version: str = Field("1.0.0")
     total_count: int = Field(0)
 
