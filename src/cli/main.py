@@ -28,6 +28,9 @@ from src.config import get_ai_config, get_webhook_config
 from src.discovery import KNOWN_PROVIDERS, get_provider_by_name, get_providers_by_tag
 from src.discovery.ai_agent import AIDiscoveryError, discover_with_ai
 from src.discovery.live import LiveDiscoveryError, discover_live
+from src.discovery.websearch.backends import AVAILABLE_SOURCES, parse_sources
+from src.discovery.websearch.deep_search import run_deep_search
+from src.discovery.websearch.keywords import parse_keywords
 from src.logging_config import get_logger, setup_logging
 from src.models import Provider, ProviderStatus
 from src.notifications import detect_status_changes, send_webhook_notification
@@ -332,6 +335,79 @@ def discover_live_cmd(output, show_all_models):
 
     if output:
         provider_list = aggregate_providers([p])
+        path = _save_output(provider_list, output)
+        console.print(f"[green]✓[/green] Đã lưu vào [bold]{path}[/bold]")
+
+
+@cli.command("discover-web")
+@click.option(
+    "--keywords",
+    "-k",
+    multiple=True,
+    help="Từ khoá tìm kiếm (lặp lại --keywords hoặc dùng 'a, b, c'). Trống = dùng preset.",
+)
+@click.option(
+    "--sources",
+    type=str,
+    default=None,
+    help=f"Nguồn search, comma-separated ({', '.join(AVAILABLE_SOURCES)}). Mặc định: tất cả",
+)
+@click.option("--max-results", type=int, default=10, show_default=True, help="Số kết quả mỗi (nguồn × keyword)")
+@click.option(
+    "--mode",
+    type=click.Choice(["heuristic", "ai"]),
+    default="heuristic",
+    show_default=True,
+    help="Trích xuất: heuristic (regex, không cần key) hoặc ai (LLM đọc nội dung trang)",
+)
+@click.option("--pages", default=5, show_default=True, type=int, help="Số trang fetch tối đa cho AI mode")
+@click.option("--output", "-o", type=str, default=None, help="Lưu kết quả ra file JSON")
+@click.option("--verify", is_flag=True, default=False, help="Kiểm tra trạng thái các provider tìm thấy")
+@click.option("--timeout", default=15.0, show_default=True, type=float, help="Timeout mỗi HTTP request (giây)")
+def discover_web(keywords, sources, max_results, mode, pages, verify, timeout, output):
+    """Deep Web Search — quét Reddit / Hacker News / DuckDuckGo / GitHub với keyword tùy ý.
+
+    Tìm provider free TỪ NỘI DUNG INTERNET THẬT (không phải trí nhớ LLM):
+    - mode heuristic: regex bắt endpoint /v1 trong kết quả search (không cần key)
+    - mode ai: fetch nội dung trang thật, LLM trích xuất provider (cần .env)
+
+    Kết quả nên verify (--verify) trước khi tin dùng.
+    """
+    kw_list = parse_keywords(keywords)
+    srcs = parse_sources(sources)
+
+    if keywords:
+        console.print("[dim]Keywords:[/dim] " + " | ".join(kw_list))
+    else:
+        console.print("[dim]Keywords: preset mặc định[/dim]")
+
+    try:
+        found = run_deep_search(
+            keywords=kw_list,
+            sources=srcs,
+            max_results=max_results,
+            timeout=timeout,
+            mode=mode,
+            max_pages=pages,
+        )
+    except Exception as e:
+        console.print(f"[red]✗ Lỗi deep search:[/red] {e}")
+        sys.exit(1)
+
+    if not found:
+        console.print("[yellow]⚠ Không tìm thấy provider mới nào (mọi kết quả đều trùng registry hoặc rỗng).[/yellow]")
+        console.print("[dim]Gợi ý: thêm keyword khác: discover-web -k 'free llm api 2026, cheap inference api'[/dim]")
+        return
+
+    console.print(f"\n[green]✓[/green] Deep search tìm thấy [bold]{len(found)}[/bold] provider mới:\n")
+    _print_provider_table(found, show_all_models=True)
+
+    if verify and found:
+        console.print("[dim]Đang kiểm tra các endpoint web-discovered...[/dim]")
+        found = _verify_with_progress(found)
+
+    if output and found:
+        provider_list = aggregate_providers(found)
         path = _save_output(provider_list, output)
         console.print(f"[green]✓[/green] Đã lưu vào [bold]{path}[/bold]")
 
