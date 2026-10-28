@@ -4,6 +4,29 @@ Tất cả thay đổi quan trọng của project được ghi nhận trong file
 Format dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning theo [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] — 2026-10-28
+
+### Added
+- **Deep Web Search** (module mới `src/discovery/websearch/`): search thật trên
+  5 nguồn internet (Reddit, Hacker News, DuckDuckGo, GitHub, **LMSpeed shared keys**)
+  với keyword linh hoạt (tùy chỉnh qua `--keywords/-k` hoặc preset đa ngôn ngữ).
+  CLI: `run.py discover-web` — không cần key, kết quả nên `--verify` trước khi dùng.
+  Heuristic mode (regex bắt /v1 endpoint) hoặc AI mode (LLM đọc nội dung trang thật).
+- **Nguồn 'shared'** (Crown AI status API + LMSpeed shared keys): truy vấn
+  `https://crown.ai.id/api/status` (JSON public, live model online) và
+  `https://lmspeed.net/free-api-keys` (RSC payload chứa baseUrl thật của key
+  cộng đồng đang chia sẻ) — trích xuất provider mới từ nội dung thật.
+- **2 provider mới** (Indonesian community pool): **Crown AI** (bansos) và **free.ai.id**
+  — pool cộng đồng chia sẻ API key miễn phí, OpenAI-compatible, không cần đăng ký.
+- **Keyword mới**: 11 keywords đa ngôn ngữ (EN/VN/ID), bao gồm community-sharing
+  keywords ("shared free api key", "community api key pool", "bansos ai gratis"...)
+- **3 provider tự động phát hiện** từ LMSpeed shared keys (live discovery):
+  Nightrouter, Agentrouter, Bananarouter và 6+ community pool khác qua source `shared`.
+
+### Changed
+- Source registry mở rộng: 4 backend search → 5 (thêm `shared`).
+- Keywords mặc định: 7 → 11 (thêm community-sharing variants).
+
 ## [1.4.0] — 2026-10-28
 
 ### Added

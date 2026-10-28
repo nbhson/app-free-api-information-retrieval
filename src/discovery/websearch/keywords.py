@@ -22,6 +22,10 @@ DEFAULT_KEYWORDS: list[str] = [
     "berbagi api llm gratis",
     "free api for everyone",
     "cộng đồng chia sẻ miễn phí",
+    # Shared-key / community pool
+    "shared free api key",
+    "community api key pool",
+    "bansos ai gratis",
 ]
 
 # Keyword scoping theo nền tảng — gắn site: khi query để tìm sâu hơn trên từng nguồn

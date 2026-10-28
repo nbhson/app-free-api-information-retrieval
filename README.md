@@ -132,13 +132,25 @@ registry cứng:
 ./venv/bin/python run.py discover-live --show-all-models
 ```
 
-So sánh 3 chế độ discovery:
+So sánh 4 chế độ discovery:
 
 | Chế độ | Nguồn dữ liệu | Cần key | Độ tươi |
 |---|---|---|---|
-| `list` | Registry cứng trong code | ❌ | Cũ nhất (theo lần curate) |
+| `list` | Registry cứng trong code (22 providers) | ❌ | Cũ nhất (theo lần curate) |
 | `discover-ai` | Trí nhớ của LLM | ✅ (AI key) | Cũ (training data) |
 | `discover-live` | **OpenRouter API trực tiếp** | ❌ | **Mới nhất** ✅ |
+| `discover-web` | **5 nguồn internet thật** (Reddit/HN/DDG/GitHub/LMSpeed) | ❌ | **Mới nhất** ✅ |
+
+### Nguồn 'shared' — API key cộng đồng (bansos)
+
+`discover-web --sources shared` query trực tiếp các trang chia sẻ key cộng đồng:
+- **Crown AI status API** (`crown.ai.id/api/status`, JSON public) — pool sống/chết,
+  model nào online hiện tại
+- **LMSpeed shared keys** (`lmspeed.net/free-api-keys`) — baseUrl thật của key
+  cộng đồng đang chia sẻ (Nightrouter, Agentrouter, ...)
+
+Registry cũng có sẵn 2 community pool Indonesia: **Crown AI** (`crown.ai.id/v1`,
+key miễn phí tại `/bansos`) và **free.ai.id** (không cần đăng ký).
 
 ## 📤 Xuất CSV cho spreadsheet
 

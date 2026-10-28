@@ -739,3 +739,91 @@ class TestDiscoverWebCLI:
         result = runner.invoke(m.cli, ["discover-web", "--output", str(out)])
         assert result.exit_code == 0
         assert out.exists()
+
+
+# ---------------------------------------------------------------------------
+# backends — shared keys (Crown AI + LMSpeed)
+# ---------------------------------------------------------------------------
+
+class TestSharedKeysSource:
+    def test_crown_status_parses_alive_models(self, monkeypatch):
+        from src.discovery.websearch.backends import search_shared_keys
+
+        payload = {
+            "ok": True,
+            "data": {
+                "pool": {"keys_checked": 10, "alive_keys": 8},
+                "models": [
+                    {"id": "zai-org/GLM-5.3-Flash", "alive": True, "latency_ms": 206},
+                    {"id": "dead-model", "alive": False},
+                    {"id": "deepseek-ai/DeepSeek-V4-Flash-0731", "alive": True},
+                ],
+            },
+        }
+
+        class FakeResp:
+            status_code = 200
+            headers = {"content-type": "application/json"}
+
+            def json(self):
+                return payload
+
+            def raise_for_status(self):
+                pass
+
+        monkeypatch.setattr("httpx.get", lambda url, **kw: FakeResp())
+        results = search_shared_keys("any", max_results=10, timeout=1.0)
+        crown = [r for r in results if "Crown AI" in r.title]
+        assert len(crown) == 1
+        assert crown[0].source == "shared_keys"
+        assert "https://crown.ai.id/v1" in crown[0].snippet
+        assert "zai-org/GLM-5.3-Flash" in crown[0].snippet
+        assert "dead-model" not in crown[0].snippet  # model chết bị lọc
+
+    def test_lmspeed_providers_parsed_and_deduped(self, monkeypatch):
+        from src.discovery.websearch.backends import fetch_lmspeed_shared_keys
+
+        html = (
+            '<a href="/provider/nightrouter">NightRouter</a>'
+            '<a href="https://lmspeed.net/provider/nightrouter">dup</a>'
+            '<a href="/provider/agnes-ai">Agnes AI</a>'
+            # RSC payload nhúng baseUrl thật
+            'baseUrl:"https://api.nightrouter.ai/v1"'
+        )
+        monkeypatch.setattr("httpx.get", lambda url, **kw: _fake_html_resp(html))
+        results = fetch_lmspeed_shared_keys(timeout=1.0)
+        base_urls = [r for r in results if r.url.startswith("https://api.")]
+        providers = [r for r in results if "/provider/" in r.url]
+        assert len(base_urls) == 1
+        assert base_urls[0].url == "https://api.nightrouter.ai/v1"
+        assert len(providers) == 2  # nightrouter (dup relative/absolute → 1) + agnes-ai
+        assert "Nightrouter" in providers[0].title or "Nightrouter" in providers[1].title
+        assert all(r.source == "shared_keys" for r in results)
+
+    def test_both_sources_failing_returns_empty_gracefully(self, monkeypatch):
+        from src.discovery.websearch.backends import search_shared_keys
+
+        def fake_get(url, **kw):
+            raise httpx.ConnectError("down")
+
+        monkeypatch.setattr("httpx.get", fake_get)
+        results = search_shared_keys("q", max_results=10, timeout=1.0)
+        assert results == []
+
+    def test_crown_snippet_contains_api_url_for_heuristic(self, monkeypatch):
+        """Snippet phải chứa base_url /v1 để heuristic extractor bắt được."""
+        from src.discovery.websearch.backends import search_shared_keys
+        from src.discovery.websearch.extractor import extract_heuristic
+
+        payload = {
+            "data": {
+                "pool": {"alive_keys": 5},
+                "models": [{"id": "m1", "alive": True}],
+            }
+        }
+        monkeypatch.setattr("httpx.get", lambda url, **kw: _fake_json_resp(payload))
+        results = search_shared_keys("q", max_results=5, timeout=1.0)
+        providers = extract_heuristic(results)
+        crown = [p for p in providers if "crown.ai.id" in p.base_url]
+        assert len(crown) == 1
+        assert crown[0].base_url == "https://crown.ai.id/v1"

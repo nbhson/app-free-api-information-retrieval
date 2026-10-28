@@ -8,7 +8,7 @@ backend ghi warning và trả về list rỗng (nguyên tắc graceful như webh
 import re
 import time
 from dataclasses import dataclass, field
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 
 import httpx
 from rich.console import Console
@@ -223,6 +223,122 @@ def search_github(query: str, max_results: int = DEFAULT_MAX_RESULTS, timeout: f
 
 
 # ---------------------------------------------------------------------------
+# Shared-key community pools — crown.ai.id (status API public) + LMSpeed
+# (bảng shared keys do cộng đồng submit). Đây là nguồn "bansos": API key
+# miễn phí do cộng đồng chia sẻ, OpenAI-compatible.
+# ---------------------------------------------------------------------------
+
+def _domain_of_url(url: str) -> str:
+    try:
+        host = urlparse(url).hostname or ""
+    except ValueError:
+        return url
+    return host.lower().removeprefix("www.")
+
+
+CROWN_STATUS_URL = "https://crown.ai.id/api/status"
+
+LMSPEED_SHARED_KEYS_URL = "https://lmspeed.net/free-api-keys"
+# Provider link có thể là relative (/provider/x) hoặc absolute (https://lmspeed.net/provider/x)
+_LMSPEED_PROVIDER_RE = re.compile(r'href="(?:https://lmspeed\.net)?(/provider/[a-zA-Z0-9._-]+)"')
+# RSC payload nhúng baseUrl thật của shared key: baseUrl:"https://api.xxx/v1"
+_LMSPEED_BASE_URL_RE = re.compile(r'baseUrl:"(https://[^"]+)"')
+
+
+def fetch_lmspeed_shared_keys(timeout: float = DEFAULT_TIMEOUT) -> list[SearchResult]:
+    """
+    Scrape bảng shared keys của LMSpeed — key do cộng đồng submit (bị mask
+    nhưng provider + base_url hiển thị công khai trong RSC payload).
+    """
+    resp = httpx.get(
+        LMSPEED_SHARED_KEYS_URL,
+        timeout=timeout,
+        headers=BROWSER_HEADERS,
+        follow_redirects=True,
+    )
+    resp.raise_for_status()
+    html = resp.text
+
+    results: list[SearchResult] = []
+    seen: set[str] = set()
+
+    # 1) baseUrl thật từ RSC payload — đây là endpoint API cộng đồng đang chia sẻ
+    for base_url in dict.fromkeys(re.findall(r'baseUrl:"(https://[^"]+)"', html)):
+        if base_url.lower() in seen:
+            continue
+        seen.add(base_url)
+        host = _domain_of_url(base_url)
+        results.append(
+            SearchResult(
+                title=f"{host} (shared key trên LMSpeed)",
+                url=base_url,
+                snippet=f"Community-submitted shared API key — base URL {base_url} "
+                "(OpenAI-compatible, chi tiết tại LMSpeed)",
+                source="shared_keys",
+            )
+        )
+
+    # 2) Provider pages — context bổ sung cho AI extraction
+    for path in _LMSPEED_PROVIDER_RE.findall(html):
+        provider_url = f"https://lmspeed.net{path}"
+        if provider_url in seen:
+            continue
+        seen.add(provider_url)
+        name = path.rstrip("/").rsplit("/", 1)[-1].replace("-", " ").title()
+        results.append(
+            SearchResult(
+                title=f"{name} (shared key trên LMSpeed)",
+                url=provider_url,
+                snippet="Community-submitted shared API key — xem chi tiết tại LMSpeed",
+                source="shared_keys",
+            )
+        )
+    return results
+
+
+def search_shared_keys(query: str, max_results: int = DEFAULT_MAX_RESULTS, timeout: float = DEFAULT_TIMEOUT) -> list[SearchResult]:
+    """
+    Nguồn 'shared' — trang web chia sẻ API key cộng đồng (không cần key):
+    - Crown AI status API: pool sống/chết, model nào online ngay bây giờ
+    - LMSpeed shared keys: provider nào đang được cộng đồng chia sẻ key
+    Kết quả trả về dạng SearchResult để đi qua pipeline extract/dedupe chuẩn.
+    """
+    results: list[SearchResult] = []
+
+    # Crown AI — JSON public, luôn trả model alive hiện tại
+    try:
+        resp = _http_get(CROWN_STATUS_URL, timeout)
+        data = resp.json().get("data", {})
+        pool = data.get("pool", {})
+        alive = [m.get("id") for m in data.get("models", []) if m.get("alive")]
+        if alive:
+            results.append(
+                SearchResult(
+                    title="Crown AI community pool (bansos) — free shared API key",
+                    url="https://crown.ai.id",
+                    snippet=(
+                        f"Base URL: https://crown.ai.id/v1 (OpenAI-compatible). "
+                        f"Free community API key: https://crown.ai.id/bansos. "
+                        f"Models online: {', '.join(str(m) for m in alive)}. "
+                        f"Pool: {pool.get('alive_keys', '?')}/{pool.get('keys_checked', '?')} keys alive."
+                    ),
+                    source="shared_keys",
+                    extra={"models_online": alive, "pool": pool},
+                )
+            )
+    except Exception as e:  # noqa: BLE001 — graceful như mọi backend khác
+        console.print(f"[yellow]⚠ Crown AI status API lỗi, bỏ qua: {e}[/yellow]")
+
+    # LMSpeed — bảng shared keys (provider name công khai, key bị mask)
+    try:
+        results.extend(fetch_lmspeed_shared_keys(timeout))
+    except Exception as e:  # noqa: BLE001
+        console.print(f"[yellow]⚠ LMSpeed shared keys lỗi, bỏ qua: {e}[/yellow]")
+
+    return results[:max_results]
+
+
+# ---------------------------------------------------------------------------
 # Registry + orchestration
 # ---------------------------------------------------------------------------
 
@@ -231,6 +347,7 @@ SEARCH_BACKENDS = {
     "hackernews": search_hackernews,
     "duckduckgo": search_duckduckgo,
     "github": search_github,
+    "shared": search_shared_keys,
 }
 
 AVAILABLE_SOURCES = sorted(SEARCH_BACKENDS.keys())

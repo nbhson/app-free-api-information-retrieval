@@ -197,10 +197,79 @@ SAMBANOVA = Provider(
     tags=["fast-inference", "free-tier", "openai-compatible"],
 )
 
+# ─── CROWN AI (bansos — pool cộng đồng Indonesia) ───
+# Community pool chia sẻ API key miễn phí. Status API public (không cần key):
+# https://crown.ai.id/api/status trả về model online, latency, tokens đã dùng.
+# API key miễn phí lấy tại https://crown.ai.id/bansos
+CROWN_AI_MODELS = [
+    Model(
+        id="zai-org/GLM-5.3-Flash",
+        name="GLM 5.3 Flash",
+        is_free=True,
+        supports_streaming=True,
+        description="Model tốc độ cao nhất trong pool Crown AI",
+    ),
+    Model(
+        id="deepseek-ai/DeepSeek-V4-Flash-0731",
+        name="DeepSeek V4 Flash",
+        is_free=True,
+        supports_streaming=True,
+    ),
+    Model(
+        id="MiniMaxAI/MiniMax-M2.7",
+        name="MiniMax M2.7",
+        is_free=True,
+        supports_streaming=True,
+    ),
+]
+
+CROWN_AI = Provider(
+    name="Crown AI",
+    base_url="https://crown.ai.id/v1",
+    website="https://crown.ai.id/bansos",
+    description="Pool API key cộng đồng (bansos = bantuan sosial / trợ cấp xã hội) "
+    "từ Crown AI Indonesia. 1 API key miễn phí dùng chung cho mọi model, "
+    "OpenAI-compatible. Nhận key tại crown.ai.id/bansos.",
+    models=CROWN_AI_MODELS,
+    status=ProviderStatus.ACTIVE,
+    auth_type=AuthType.API_KEY,
+    api_style=APIStyle.OPENAI,
+    auth_required=True,
+    rate_limit="Pool có rate tokens/phút toàn hệ thống; quota phụ thuộc dung tích pool còn lại",
+    tags=["free-tier", "openai-compatible", "community-pool", "shared-key", "indonesia", "bansos"],
+)
+
+# ─── FREE.AI.ID ───
+FREE_AI_ID = Provider(
+    name="free.ai.id",
+    base_url="https://free.ai.id/v1",
+    website="https://free.ai.id",
+    description="Community pool Indonesia: 1 API key cho nhiều model AI miễn phí, "
+    "format OpenAI-compatible. Tanpa daftar (không cần đăng ký), tanpa kartu kredit. "
+    "Key dạng sk-free.ai.id-... lấy tại trang chủ.",
+    models=[
+        Model(
+            id="(dynamic-pool)",
+            name="Community pool models",
+            is_free=True,
+            description="Danh sách model cấp phát động theo pool — gọi GET /v1/models "
+            "bằng API key miễn phí (lấy tại free.ai.id) để xem model thật hiện có.",
+        ),
+    ],
+    status=ProviderStatus.ACTIVE,
+    auth_type=AuthType.API_KEY,
+    api_style=APIStyle.OPENAI,
+    auth_required=True,
+    rate_limit="Quota theo pool community — xem trang chủ",
+    tags=["free-tier", "openai-compatible", "community-pool", "indonesia", "no-signup", "unverified-models"],
+)
+
 KNOWN_PROVIDERS_PART3: list[Provider] = [
     CLOUDFLARE_WORKERS_AI,
     REPLICATE,
     GITHUB_MODELS,
     CEREBRAS,
     SAMBANOVA,
+    CROWN_AI,
+    FREE_AI_ID,
 ]
