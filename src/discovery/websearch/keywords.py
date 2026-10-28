@@ -16,6 +16,12 @@ DEFAULT_KEYWORDS: list[str] = [
     "llm free api key",
     "free ai api provider reddit",
     "nhà cung cấp LLM API miễn phí",
+    # Community-sharing keywords
+    "free llm api community sharing",
+    "open source llm api free",
+    "berbagi api llm gratis",
+    "free api for everyone",
+    "cộng đồng chia sẻ miễn phí",
 ]
 
 # Keyword scoping theo nền tảng — gắn site: khi query để tìm sâu hơn trên từng nguồn
