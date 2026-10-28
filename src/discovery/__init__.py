@@ -4,9 +4,10 @@ Discovery Module - Registry tất cả provider LLM miễn phí
 
 from .providers_part1 import KNOWN_PROVIDERS_PART1 as PART1
 from .providers_part2 import KNOWN_PROVIDERS_PART2 as PART2
+from .providers_part3 import KNOWN_PROVIDERS_PART3 as PART3
 
 # Tổng hợp tất cả provider
-KNOWN_PROVIDERS = PART1 + PART2
+KNOWN_PROVIDERS = PART1 + PART2 + PART3
 
 # Registry tra cứu nhanh theo tên
 PROVIDER_REGISTRY = {p.name.lower(): p for p in KNOWN_PROVIDERS}

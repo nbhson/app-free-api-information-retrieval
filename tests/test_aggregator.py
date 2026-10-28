@@ -65,3 +65,64 @@ class TestSaveYaml:
         content = path.read_text()
         assert "Mini" in content
         assert "free-m" in content
+
+
+class TestCsv:
+    def test_csv_header_and_rows(self, tmp_path):
+        pl = aggregator.aggregate_providers([_minimal_provider()])
+        path = tmp_path / "out.csv"
+        aggregator.save_to_csv(pl, str(path))
+        content = path.read_text()
+        lines = content.strip().splitlines()
+        assert lines[0].startswith("provider")
+        assert "Mini" in content
+        assert "free-m" in content
+        assert len(lines) == 2  # header + 1 model
+
+    def test_csv_creates_parent_dir(self, tmp_path):
+        pl = aggregator.aggregate_providers([_minimal_provider()])
+        path = tmp_path / "deep/nested/out.csv"
+        aggregator.save_to_csv(pl, str(path))
+        assert path.exists()
+
+    def test_csv_only_free_models(self, tmp_path):
+        p = _minimal_provider()
+        p.models.append(Model(id="paid-m", name="Paid M", is_free=False))
+        pl = aggregator.aggregate_providers([p])
+        path = tmp_path / "out.csv"
+        aggregator.save_to_csv(pl, str(path))
+        assert "paid-m" not in path.read_text()
+
+    def test_csv_include_paid_when_disabled(self, tmp_path):
+        p = _minimal_provider()
+        p.models.append(Model(id="paid-m", name="Paid M", is_free=False))
+        pl = aggregator.aggregate_providers([p])
+        path = tmp_path / "out.csv"
+        aggregator.save_to_csv(pl, str(path), only_free=False)
+        assert "paid-m" in path.read_text()
+
+    def test_providers_to_csv_string_roundtrip(self):
+        """CSV xuất ra string parse được bằng csv.DictReader."""
+        import csv as csv_module
+        import io as io_module
+
+        p = _minimal_provider()
+        pl = aggregator.aggregate_providers([p])
+        text = aggregator.providers_to_csv(pl)
+        rows = list(csv_module.DictReader(io_module.StringIO(text)))
+        assert len(rows) == 1
+        assert rows[0]["provider"] == "Mini"
+        assert rows[0]["model_id"] == "free-m"
+        assert rows[0]["is_free"] == "True"
+
+    def test_csv_one_row_per_model(self):
+        import csv as csv_module
+        import io as io_module
+
+        p = _minimal_provider()
+        p.models.append(Model(id="free-m2", name="Free M2", is_free=True))
+        pl = aggregator.aggregate_providers([p])
+        text = aggregator.providers_to_csv(pl)
+        rows = list(csv_module.DictReader(io_module.StringIO(text)))
+        assert len(rows) == 2
+        assert {r["model_id"] for r in rows} == {"free-m", "free-m2"}

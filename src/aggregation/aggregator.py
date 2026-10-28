@@ -4,6 +4,8 @@ Aggregator - Tổng hợp danh sách provider và xuất ra file
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -70,3 +72,67 @@ def save_to_yaml(provider_list: ProviderList, path: str, only_free: bool = True)
         data["providers"].append(entry)
 
     return str(_save_payload(data, Path(path), as_yaml=True))
+
+
+# Cột CSV — 1 row cho mỗi cặp (provider, model), thân thiện với spreadsheet
+CSV_COLUMNS = [
+    "provider",
+    "base_url",
+    "status",
+    "auth_required",
+    "api_style",
+    "tags",
+    "model_id",
+    "model_name",
+    "is_free",
+    "context_length",
+    "supports_streaming",
+    "rate_limit",
+    "last_updated",
+]
+
+
+def _csv_rows(provider_list: ProviderList, only_free: bool) -> list[dict[str, Any]]:
+    """Flatten provider + model thành rows cho CSV."""
+    rows: list[dict[str, Any]] = []
+    for prov in provider_list.providers:
+        models = prov.get_free_models() if only_free else prov.models
+        if not models:
+            # Provider không có model (sau lọc) — vẫn xuất 1 row để không mất dữ liệu
+            models = []
+        for model in models:
+            rows.append(
+                {
+                    "provider": prov.name,
+                    "base_url": prov.base_url,
+                    "status": prov.status.value,
+                    "auth_required": prov.auth_required,
+                    "api_style": prov.api_style.value,
+                    "tags": ", ".join(prov.tags),
+                    "model_id": model.id,
+                    "model_name": model.name,
+                    "is_free": model.is_free,
+                    "context_length": model.context_length if model.context_length else "",
+                    "supports_streaming": model.supports_streaming,
+                    "rate_limit": prov.rate_limit or "",
+                    "last_updated": provider_list.last_updated.isoformat(),
+                }
+            )
+    return rows
+
+
+def providers_to_csv(provider_list: ProviderList, only_free: bool = True) -> str:
+    """Tạo chuỗi CSV từ danh sách provider (mỗi model 1 row) — dùng cho stdout."""
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=CSV_COLUMNS, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(_csv_rows(provider_list, only_free))
+    return buf.getvalue()
+
+
+def save_to_csv(provider_list: ProviderList, path: str, only_free: bool = True) -> str:
+    """Lưu danh sách provider ra file CSV (mỗi model 1 row) — mở được bằng Excel/Sheets."""
+    path_obj = Path(path)
+    path_obj.parent.mkdir(parents=True, exist_ok=True)
+    path_obj.write_text(providers_to_csv(provider_list, only_free), encoding="utf-8")
+    return str(path_obj)

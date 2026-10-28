@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import datetime, timezone
 
 import httpx
@@ -20,6 +21,9 @@ from src.__version__ import __version__
 from src.models import Provider, ProviderStatus
 
 logger = logging.getLogger(__name__)
+
+# Callback báo tiến độ: (completed, total, provider vừa verify xong)
+ProgressCallback = Callable[[int, int, Provider], None]
 
 # Giới hạn số request song song — tránh trigger rate limit hàng loạt
 MAX_CONCURRENCY = 5
@@ -121,14 +125,30 @@ async def verify_provider(
         return result
 
 
-async def verify_all_providers(providers: list[Provider]) -> list[Provider]:
-    """Kiểm tra song song nhiều provider (giới hạn bởi MAX_CONCURRENCY)."""
+async def verify_all_providers(
+    providers: list[Provider], progress_callback: ProgressCallback | None = None
+) -> list[Provider]:
+    """
+    Kiểm tra song song nhiều provider (giới hạn bởi MAX_CONCURRENCY).
+
+    Args:
+        providers: Danh sách provider cần verify.
+        progress_callback: Optional — được gọi sau mỗi provider hoàn tất
+            với (completed, total, provider). Dùng để vẽ progress bar ở CLI.
+    """
     # Semaphore cục bộ cho mỗi lần gọi — tránh lỗi event loop khi dùng lại ở event loop khác
     semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
+    total = len(providers)
+    completed = 0
 
     async def bounded(p: Provider) -> Provider:
+        nonlocal completed
         async with semaphore:
-            return await verify_provider(p)
+            result = await verify_provider(p)
+            completed += 1
+            if progress_callback is not None:
+                progress_callback(completed, total, result)
+            return result
 
     tasks = [bounded(p) for p in providers]
-    return await asyncio.gather(*tasks)
+    return list(await asyncio.gather(*tasks))

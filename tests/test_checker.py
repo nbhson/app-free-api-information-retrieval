@@ -163,6 +163,36 @@ class TestVerifyAll:
         assert await verify_all_providers([]) == []
 
 
+class TestProgressCallback:
+    async def test_callback_called_per_provider(self, sample_providers, monkeypatch):
+        def handler(request):
+            return httpx.Response(200)
+
+        monkeypatch.setattr(checker.httpx, "AsyncClient", lambda **kw: _transport(handler))
+        calls: list[tuple[int, int, str]] = []
+        results = await verify_all_providers(
+            sample_providers,
+            progress_callback=lambda done, total, p: calls.append((done, total, p.name)),
+        )
+        assert len(calls) == len(sample_providers)
+        # completed tăng dần 1..n
+        assert [c[0] for c in calls] == list(range(1, len(sample_providers) + 1))
+        # total đúng bằng số provider
+        assert all(c[1] == len(sample_providers) for c in calls)
+        # callback nhận đúng provider vừa verify (status đã cập nhật)
+        assert all(c[2] in {p.name for p in results} for c in calls)
+
+    async def test_no_callback_is_default(self, sample_providers, monkeypatch):
+        """Không truyền callback → vẫn hoạt động bình thường (backward compatible)."""
+
+        def handler(request):
+            return httpx.Response(200)
+
+        monkeypatch.setattr(checker.httpx, "AsyncClient", lambda **kw: _transport(handler))
+        results = await verify_all_providers(sample_providers)
+        assert len(results) == 2
+
+
 class TestConcurrency:
     def test_max_concurrency_configured(self):
         """Giá trị cấu hình concurrency hợp lệ."""

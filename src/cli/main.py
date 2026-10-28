@@ -13,21 +13,25 @@ from typing import Any
 import click
 from rich import box
 from rich.console import Console
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from src.__version__ import __version__
 from src.aggregation.aggregator import (
     aggregate_providers,
+    providers_to_csv,
+    save_to_csv,
     save_to_json,
     save_to_yaml,
 )
-from src.config import get_ai_config
+from src.config import get_ai_config, get_webhook_config
 from src.discovery import KNOWN_PROVIDERS, get_provider_by_name, get_providers_by_tag
 from src.discovery.ai_agent import AIDiscoveryError, discover_with_ai
 from src.discovery.live import LiveDiscoveryError, discover_live
 from src.logging_config import get_logger, setup_logging
-from src.models import ProviderStatus
-from src.verification.checker import verify_all_providers, verify_provider
+from src.models import Provider, ProviderStatus
+from src.notifications import detect_status_changes, send_webhook_notification
+from src.verification.checker import ProgressCallback, verify_all_providers, verify_provider
 
 logger = get_logger("cli")
 
@@ -42,6 +46,57 @@ def _status_style(status: ProviderStatus) -> str:
         ProviderStatus.UNKNOWN: "dim",
     }
     return colors.get(status, "dim")
+
+
+def _verify_with_progress(providers: list[Provider]) -> list[Provider]:
+    """Verify song song với Rich progress bar hiển thị tiến độ."""
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.completed}/{task.total}"),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Đang verify...", total=len(providers))
+
+        def cb(completed: int, total: int, p: Provider) -> None:
+            progress.update(task, completed=completed, description=f"✓ {p.name}")
+
+        cb_typed: ProgressCallback = cb
+        return asyncio.run(verify_all_providers(providers, progress_callback=cb_typed))
+
+
+def _notify_status_changes(originals: list[Provider], verified: list[Provider]) -> None:
+    """Phát hiện provider đổi status sau verify và gửi webhook notification (nếu cấu hình)."""
+    changes = detect_status_changes(originals, verified)
+    if not changes:
+        return
+
+    cfg = get_webhook_config()
+    if not cfg.is_configured():
+        console.print(
+            f"[dim]⚠ {len(changes)} provider đổi status — cấu hình WEBHOOK_URL trong .env "
+            f"để nhận notification[/dim]"
+        )
+        return
+
+    sent = send_webhook_notification(changes, cfg)
+    if sent:
+        console.print(
+            f"[green]✓[/green] Webhook notification đã gửi "
+            f"({len(changes)} thay đổi status) → [bold]{cfg.url}[/bold]"
+        )
+    else:
+        console.print("[yellow]⚠ Gửi webhook notification thất bại[/yellow]")
+
+
+def _save_output(provider_list, output: str) -> str:
+    """Lưu ProviderList ra file — dispatch theo đuôi file: .json / .yaml / .csv."""
+    if output.endswith((".yaml", ".yml")):
+        return save_to_yaml(provider_list, output)
+    if output.endswith(".csv"):
+        return save_to_csv(provider_list, output)
+    return save_to_json(provider_list, output)
 
 
 def _print_provider_table(providers, show_all_models: bool = False) -> None:
@@ -80,11 +135,11 @@ def cli():
     """Free LLM Provider Discovery - Tìm và kiểm tra các LLM API miễn phí."""
 
 
-@cli.command()
+@cli.command("list")
 @click.option(
     "--format",
     "fmt",
-    type=click.Choice(["table", "json", "yaml"]),
+    type=click.Choice(["table", "json", "yaml", "csv"]),
     default="table",
     help="Định dạng đầu ra",
 )
@@ -104,6 +159,7 @@ def list_cmd(fmt, output, verify, show_all_models, tag, no_auth, verbose):
         setup_logging("WARNING")  # mặc định quiet
 
     providers = list(KNOWN_PROVIDERS)
+    originals = [p.model_copy(deep=True) for p in providers]
 
     # Lọc theo tag
     if tag:
@@ -115,7 +171,8 @@ def list_cmd(fmt, output, verify, show_all_models, tag, no_auth, verbose):
 
     if verify:
         logger.info("Đang kiểm tra các endpoint...")
-        providers = asyncio.run(verify_all_providers(providers))
+        providers = _verify_with_progress(providers)
+        _notify_status_changes(originals, providers)
         inactive = [p for p in providers if p.status == ProviderStatus.INACTIVE]
         if inactive:
             logger.warning("Có %d provider không hoạt động", len(inactive))
@@ -124,10 +181,7 @@ def list_cmd(fmt, output, verify, show_all_models, tag, no_auth, verbose):
     # Lưu ra file trước (nếu có --output) để mọi định dạng đều nhận được dữ liệu
     if output:
         provider_list = aggregate_providers(providers)
-        if output.endswith((".yaml", ".yml")):
-            path = save_to_yaml(provider_list, output)
-        else:
-            path = save_to_json(provider_list, output)
+        path = _save_output(provider_list, output)
         console.print(f"[green]✓[/green] Đã lưu vào [bold]{path}[/bold]")
 
     if fmt == "json":
@@ -145,6 +199,9 @@ def list_cmd(fmt, output, verify, show_all_models, tag, no_auth, verbose):
                 sort_keys=False,
             )
         )
+        return
+    if fmt == "csv":
+        click.echo(providers_to_csv(aggregate_providers(providers)))
         return
 
     _print_provider_table(providers, show_all_models=show_all_models)
@@ -190,12 +247,11 @@ def check(provider):
 def update(output):
     """Kiểm tra tất cả provider và cập nhật file dữ liệu."""
     logger.info("Đang kiểm tra tất cả provider...")
-    providers = asyncio.run(verify_all_providers(list(KNOWN_PROVIDERS)))
+    originals = [p.model_copy(deep=True) for p in KNOWN_PROVIDERS]
+    providers = _verify_with_progress(list(KNOWN_PROVIDERS))
+    _notify_status_changes(originals, providers)
     provider_list = aggregate_providers(providers)
-    if output.endswith(".yaml") or output.endswith(".yml"):
-        path = save_to_yaml(provider_list, output)
-    else:
-        path = save_to_json(provider_list, output)
+    path = _save_output(provider_list, output)
     console.print(f"[green]✓[/green] Đã cập nhật và lưu vào [bold]{path}[/bold]")
 
 
@@ -241,7 +297,7 @@ def discover_ai(output, verify, show):
 
     if output and found:
         provider_list = aggregate_providers(found)
-        path = save_to_json(provider_list, output)
+        path = _save_output(provider_list, output)
         console.print(f"[green]✓[/green] Đã lưu vào [bold]{path}[/bold]")
 
     # Lưu cả khi rỗng để người dùng biết
@@ -276,10 +332,7 @@ def discover_live_cmd(output, show_all_models):
 
     if output:
         provider_list = aggregate_providers([p])
-        if output.endswith((".yaml", ".yml")):
-            path = save_to_yaml(provider_list, output)
-        else:
-            path = save_to_json(provider_list, output)
+        path = _save_output(provider_list, output)
         console.print(f"[green]✓[/green] Đã lưu vào [bold]{path}[/bold]")
 
 
@@ -325,6 +378,30 @@ def health(output):
             console.print(f"  [yellow]Warnings:[/yellow] {len(results['warnings'])}")
             for w in results["warnings"]:
                 console.print(f"    • {w}")
+
+
+@cli.command("serve")
+@click.option("--host", default="127.0.0.1", show_default=True, help="Host để bind API server")
+@click.option("--port", default=8000, show_default=True, type=int, help="Port để bind API server")
+def serve(host, port):
+    """Chạy REST API server để query provider từ app khác.
+
+    Swagger UI: http://{host}:{port}/docs
+    """
+    try:
+        import uvicorn
+
+        from src.api.app import app as api_app
+    except ImportError as e:
+        console.print(
+            f"[red]✗ Thiếu dependency cho API server:[/red] {e}\n"
+            f"[dim]Cài lại: pip install -r requirements.txt[/dim]"
+        )
+        sys.exit(1)
+
+    console.print(f"[green]✓[/green] API server chạy tại [bold]http://{host}:{port}[/bold]")
+    console.print(f"[dim]Swagger UI: http://{host}:{port}/docs[/dim]")
+    uvicorn.run(api_app, host=host, port=port, log_level="info")
 
 
 def main():

@@ -62,7 +62,47 @@ class AIConfig(BaseSettings):
         return errors
 
 
+class WebhookConfig(BaseSettings):
+    """Cấu hình webhook notification khi provider status thay đổi."""
+
+    model_config = SettingsConfigDict(
+        env_file=_ENV_FILE if _ENV_FILE.exists() else None,
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    url: str = Field("", alias="WEBHOOK_URL")
+    timeout: int = Field(10, alias="WEBHOOK_TIMEOUT")
+    enabled: bool = Field(True, alias="WEBHOOK_ENABLED")
+
+    @field_validator("timeout")
+    @classmethod
+    def _validate_timeout(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("WEBHOOK_TIMEOUT phải > 0")
+        return v
+
+    def is_configured(self) -> bool:
+        """Webhook sẵn sàng = có URL và được bật."""
+        return bool(self.url) and self.enabled
+
+    def validation_errors(self) -> list[str]:
+        """Validate config, trả về list lỗi (rỗng = OK)."""
+        errors: list[str] = []
+        if self.url and not self.url.startswith(("http://", "https://")):
+            errors.append("WEBHOOK_URL phải bắt đầu bằng http:// hoặc https://")
+        if self.timeout <= 0:
+            errors.append("WEBHOOK_TIMEOUT phải > 0")
+        return errors
+
+
 @lru_cache(maxsize=1)
 def get_ai_config() -> AIConfig:
     """Singleton config — cache để env thay đổi sau import vẫn nhất quán."""
     return AIConfig()
+
+
+@lru_cache(maxsize=1)
+def get_webhook_config() -> WebhookConfig:
+    """Singleton webhook config — cache để env thay đổi sau import vẫn nhất quán."""
+    return WebhookConfig()

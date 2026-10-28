@@ -31,5 +31,8 @@ COPY --chown=appuser:appuser run.py pyproject.toml README.md ./
 HEALTHCHECK --interval=60s --timeout=10s --start-period=5s --retries=2 \
     CMD ["python", "run.py", "health", "--output", "/tmp/health.json"]
 
+# REST API server (dùng với: docker compose run app serve --host 0.0.0.0)
+EXPOSE 8000
+
 ENTRYPOINT ["python", "run.py"]
 CMD ["--help"]

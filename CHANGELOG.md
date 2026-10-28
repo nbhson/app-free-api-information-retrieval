@@ -4,6 +4,30 @@ Tất cả thay đổi quan trọng của project được ghi nhận trong file
 Format dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning theo [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] — 2026-10-28
+
+### Added
+- **CSV export**: `list --format csv` (stdout) và `--output file.csv` — 1 row cho mỗi
+  (provider, model), mở trực tiếp bằng Excel/Google Sheets. Helper mới
+  `providers_to_csv()` + `save_to_csv()` trong aggregator, dispatch tự động theo
+  đuôi file cho mọi lệnh có `--output`.
+- **Progress bar cho verification**: `verify_all_providers` nhận optional
+  `progress_callback(completed, total, provider)`; CLI vẽ Rich Progress bar khi
+  chạy `list --verify` và `update`. Backward compatible — callback là optional.
+- **Webhook notification**: module mới `src/notifications/webhook.py`. Sau khi verify
+  (`list --verify`, `update`), CLI so sánh status registry vs kết quả verify và POST
+  payload JSON tới `WEBHOOK_URL` (cấu hình trong `.env`: `WEBHOOK_URL`,
+  `WEBHOOK_TIMEOUT`, `WEBHOOK_ENABLED`). Fire-and-forget an toàn — lỗi webhook
+  không bao giờ crash pipeline verify.
+- **5 providers mới** (`providers_part3.py`): Cloudflare Workers AI (free tier,
+  OpenAI-compatible), GitHub Models (free qua PAT), Cerebras (free tier),
+  SambaNova (free tier), Replicate (paid-only) → registry 15 → **20 providers**.
+- **REST API server**: `python run.py serve --host 0.0.0.0 --port 8000` (FastAPI +
+  uvicorn). Endpoints: `GET /api/v1/providers` (lọc tag/no_auth/free_only),
+  `GET /api/v1/providers/{name}`, `GET /api/v1/health`, `GET /api/v1/version`.
+  Swagger UI tại `/docs`. Module mới `src/api/app.py` (100% test coverage).
+  Docker Compose thêm service `api` expose port 8000.
+
 ## [1.3.0] — 2026-10-28
 
 ### Fixed

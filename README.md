@@ -4,7 +4,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-261230)](https://github.com/astral-sh/ruff)
-[![Coverage](https://img.shields.io/badge/coverage-92%25-brightgreen)](#phát-triển-enterprise)
+[![Coverage](https://img.shields.io/badge/coverage-93%25-brightgreen)](#phát-triển-enterprise)
 
 CLI tool để **khám phá, kiểm tra và tổng hợp** danh sách các nhà cung cấp API LLM miễn phí.
 
@@ -62,9 +62,16 @@ docker compose run app list --verify
 # Xuất YAML
 ./venv/bin/python run.py update --output data/providers.yaml
 
+# Xuất CSV (mở được bằng Excel / Google Sheets)
+./venv/bin/python run.py list --format csv
+./venv/bin/python run.py list --output data/providers.csv
+
 # Kiểm tra nhanh health
 ./venv/bin/python run.py health
 ./venv/bin/python run.py health --output health.json
+
+# Chạy REST API server
+./venv/bin/python run.py serve --port 8000
 
 # Bật debug logging
 ./venv/bin/python run.py list --verbose
@@ -133,12 +140,93 @@ So sánh 3 chế độ discovery:
 | `discover-ai` | Trí nhớ của LLM | ✅ (AI key) | Cũ (training data) |
 | `discover-live` | **OpenRouter API trực tiếp** | ❌ | **Mới nhất** ✅ |
 
+## 📤 Xuất CSV cho spreadsheet
+
+`--format csv` hoặc file `--output *.csv` — mỗi (provider, model) là 1 row,
+mở trực tiếp bằng Excel / Google Sheets:
+
+```bash
+# In CSV ra stdout
+./venv/bin/python run.py list --format csv
+
+# Lưu ra file (cột: provider, base_url, status, auth_required, api_style,
+# tags, model_id, model_name, is_free, context_length, supports_streaming,
+# rate_limit, last_updated)
+./venv/bin/python run.py list --output data/providers.csv
+
+# Hoặc kết hợp với --verify / --tag
+./venv/bin/python run.py list --verify --output data/providers.csv
+```
+
+## 🔔 Webhook notification khi provider đổi status
+
+Sau khi verify (`list --verify`, `update`), tool so sánh status registry với
+kết quả verify. Nếu có provider đổi status (ví dụ `active` → `inactive`), tool
+POST payload JSON tới `WEBHOOK_URL`:
+
+```env
+# .env
+WEBHOOK_URL=https://hooks.slack.com/services/xxx    # trống = tắt thông báo
+WEBHOOK_TIMEOUT=10
+WEBHOOK_ENABLED=true
+```
+
+Payload mẫu:
+
+```json
+{
+  "event": "provider_status_changed",
+  "version": "1.4.0",
+  "timestamp": "2026-10-28T00:00:00+00:00",
+  "total_changes": 1,
+  "changes": [
+    {"provider": "Groq", "base_url": "https://api.groq.com/openai/v1",
+     "old_status": "active", "new_status": "inactive"}
+  ]
+}
+```
+
+> Webhook fire-and-forget an toàn: lỗi network không bao giờ làm crash pipeline
+> verify. Nếu chưa cấu hình `WEBHOOK_URL`, CLI vẫn in ra số provider đổi status.
+
+## 🌐 REST API (query từ app khác)
+
+Chạy API server (FastAPI + uvicorn):
+
+```bash
+./venv/bin/python run.py serve --host 0.0.0.0 --port 8000
+# Swagger UI: http://localhost:8000/docs
+```
+
+Endpoints:
+
+| Method | Path | Mô tả |
+|--------|------|-------|
+| GET | `/api/v1/providers?tag=free-tier&no_auth=false&free_only=true` | Danh sách provider, hỗ trợ lọc |
+| GET | `/api/v1/providers/{name}` | Chi tiết 1 provider (404 nếu không có) |
+| GET | `/api/v1/health` | Health report (registry + config) |
+| GET | `/api/v1/version` | Version API |
+
+Ví dụ:
+
+```bash
+curl http://localhost:8000/api/v1/providers?tag=free-tier
+curl http://localhost:8000/api/v1/providers/groq
+```
+
+Hoặc dùng Docker:
+
+```bash
+docker compose up api   # API chạy tại http://localhost:8000
+```
+
 ## Kiến trúc (Architecture)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                           CLI (Click + Rich)                     │
 │  list · check · update · discover-ai · discover-live · health    │
+│  serve (REST API)                                                │
 └───────┬──────────────┬──────────────┬──────────────────┬────────┘
         │              │              │                  │
         ▼              ▼              ▼                  ▼
@@ -146,15 +234,17 @@ So sánh 3 chế độ discovery:
 │  DISCOVERY   │ │VERIFICATION│ │AGGREGATION  │ │   OUTPUT       │
 │              │ │            │ │             │ │                │
 │ • Registry   │→│ Async      │→│ ProviderList│→│ JSON / YAML    │
-│   (curate)   │ │ checker    │ │ ProviderList│ │ console table  │
-│   15 curated │ │ semaphore 5│ │ filter free │ │ file output    │
-│   providers  │ │ retry 429/ │ │ version     │ │                │
-│              │ │ backoff    │ │             │ │                │
-│ • AI Agent   │ │            │ │             │ │                │
-│   (LLM-based)│ │            │ │             │ │                │
+│   (curate)   │ │ checker    │ │ ProviderList│ │ CSV            │
+│   20 curated │ │ semaphore 5│ │ filter free │ │ console table  │
+│   providers  │ │ retry 429/ │ │ version     │ │ file output    │
+│              │ │ backoff    │ │             │ │ progress bar   │
+│ • AI Agent   │ │ + progress │ │             │ │                │
+│   (LLM-based)│ │   callback │ │             │ │                │
 │ • Live       │ │            │ │             │ │                │
-│   (OpenRouter│ │            │ │             │ │                │
-│    API thật) │ │            │ │             │ │                │
+│   (OpenRouter│ │  Webhook   │ │             │ │                │
+│    API thật) │ │  notify on │ │             │ │                │
+│              │ │  status    │ │             │ │                │
+│              │ │  change    │ │             │ │                │
 └──────────────┘ └───────────┘ └─────────────┘ └────────────────┘
         │                                            │
         └────────────── src/models.py ────────────────┘
@@ -172,23 +262,28 @@ So sánh 3 chế độ discovery:
 ```
 src/
 ├── models.py                    # Data models (Provider, Model, ...)
-├── config.py                    # Load .env (AI_PROVIDER_BASE_URL, AI_API_KEY, AI_MODEL)
+├── config.py                    # Load .env (AI_*, WEBHOOK_*)
 ├── logging_config.py            # Structured logging (stdlib)
 ├── discovery/
 │   ├── __init__.py              # Gộp registry + helpers
 │   ├── providers_part1.py       # Providers phổ biến (OpenRouter, Groq, ...)
-│   ├── providers_part2.py       # Providers bổ sung + new: Ollama, GigaChat, Yandex
+│   ├── providers_part2.py       # Providers bổ sung (HuggingFace, Ollama, ...)
+│   ├── providers_part3.py       # Providers mới (Cloudflare, Replicate, GitHub Models, ...)
 │   ├── ai_agent.py              # AI Discovery Agent (gọi LLM tìm provider mới)
 │   └── live.py                  # Live Discovery (query OpenRouter API thật)
 ├── verification/
-│   └── checker.py               # Async endpoint checker (returns copies, local semaphore)
+│   └── checker.py               # Async endpoint checker (progress callback, local semaphore)
 ├── aggregation/
-│   └── aggregator.py            # Xuất JSON/YAML
+│   └── aggregator.py            # Xuất JSON/YAML/CSV
+├── notifications/
+│   └── webhook.py               # Webhook notification khi provider status đổi
+├── api/
+│   └── app.py                   # REST API (FastAPI): /api/v1/providers, /health, ...
 └── cli/
-    └── main.py                  # Click CLI: list / check / update / discover-ai / discover-live / health
+    └── main.py                  # Click CLI: list / check / update / discover-ai / discover-live / health / serve
 ```
 
-## Provider hiện có (15)
+## Provider hiện có (20)
 
 | Provider | Free tier | OpenAI-compatible | Ghi chú |
 |----------|-----------|-------------------|---------|
@@ -207,16 +302,17 @@ src/
 | Ollama | ✅ | ✅ | local, no-auth |
 | GigaChat | ✅ | ❌ (custom) | Nga, 100 req/ngày |
 | Yandex Cloud | ✅ (Lite) | ❌ (custom) | Nga, 5K tokens/phút |
+| Cloudflare Workers AI | ✅ (10K neurons/ngày) | ✅ | edge, thay `{account_id}` trong base_url |
+| GitHub Models | ✅ (qua PAT) | ✅ | free rate limit theo tier tài khoản |
+| Cerebras | ✅ | ✅ | inference nhanh nhất (WSE) |
+| SambaNova | ✅ | ✅ | custom RDU chip |
+| Replicate | ❌ (paid-only) | ❌ (custom) | trả phí theo giây chạy |
 
 ## Đóng góp
 
-Muốn thêm provider mới? Sửa `src/discovery/providers_part2.py` và thêm entry
-theo format `Provider(...)`. Sau đó chạy `update` để verify.
-
-## Đóng góp
-
-Muốn thêm provider mới? Sửa `src/discovery/providers_part2.py` và thêm entry
-theo format `Provider(...)`. Sau đó chạy `update` để verify.
+Muốn thêm provider mới? Sửa `src/discovery/providers_part2.py` (hoặc tạo
+`providers_part3.py` mới) và thêm entry theo format `Provider(...)`. Sau đó
+chạy `update` để verify.
 
 Xem chi tiết quy trình trong [CONTRIBUTING.md](CONTRIBUTING.md).
 Báo cáo lỗ hổng bảo mật: [SECURITY.md](SECURITY.md).
@@ -249,6 +345,13 @@ fetch_openrouter_free_models(timeout=30.0)
 `docker-compose.yml` dùng `env_file: .env` — đảm bảo file tồn tại trước khi
 chạy `docker compose up`. Nếu chưa có, tạo từ `.env.example`.
 
+### Webhook không gửi notification
+1. Kiểm tra `WEBHOOK_URL` đã set trong `.env` chưa (trống = tắt).
+2. `WEBHOOK_ENABLED` phải là `true`.
+3. Notification chỉ gửi khi CÓ provider đổi status — nếu mọi provider giữ
+   nguyên status, không có gì để gửi.
+4. Bật `--verbose` để xem log debug của webhook.
+
 ## FAQ
 
 **Q: Tool có spam các endpoint provider không?**
@@ -267,6 +370,22 @@ Chỉ `discover-ai` cần AI key (trong `.env`).
 **Q: Kết quả `discover-ai` có đáng tin không?**
 A: KHÔNG hoàn toàn. LLM có thể "bịa" provider không tồn tại. Hãy luôn chạy
 `--verify` sau khi dùng `discover-ai`, hoặc dùng `discover-live` cho dữ liệu thật.
+
+**Q: Webhook notification hoạt động như thế nào?**
+A: Sau mỗi lần verify (`list --verify`, `update`), CLI so sánh status trong registry
+với kết quả verify thật. Nếu có thay đổi, POST payload JSON tới `WEBHOOK_URL`.
+Cấu hình trong `.env`: `WEBHOOK_URL`, `WEBHOOK_TIMEOUT`, `WEBHOOK_ENABLED`.
+Lỗi webhook không bao giờ crash pipeline.
+
+**Q: API server có gì khác với CLI?**
+A: REST API trả về dữ liệu JSON, hỗ trợ lọc theo tag/auth/free, dùng từ app/website
+khác. Cùng data nguồn registry, không cần verify (status gốc, chưa ping).
+
+**Q: CSV format khác gì JSON?**
+A: JSON giữ cấu trúc lồng nhau (provider chứa mảng models). CSV flatten — mỗi
+row = 1 cặp (provider, model), thân thiện với Excel/Google Sheets. Cột:
+provider, base_url, status, auth_required, api_style, tags, model_id, model_name,
+is_free, context_length, supports_streaming, rate_limit, last_updated.
 
 **Q: Version được quản lý thế nào?**
 A: Single source of truth trong `pyproject.toml`. `src/__version__.py` đọc từ
@@ -287,7 +406,7 @@ CLI `run.py --version` hiển thị version hiện tại.
 # Cài dev dependencies (pytest, ruff, mypy, ...)
 pip install -r requirements-dev.txt
 
-# Chạy test suite (129 tests, coverage ≥ 90%)
+# Chạy test suite (181 tests, coverage ≥ 90%)
 ./venv/bin/python -m pytest tests/ --cov=src
 
 # Lint + format

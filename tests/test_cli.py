@@ -24,7 +24,7 @@ def mock_verify(monkeypatch):
         result.status = ProviderStatus.ACTIVE
         return result
 
-    async def fake_verify_all(provs):
+    async def fake_verify_all(provs, progress_callback=None):
         results = []
         for p in provs:
             cp = p.model_copy(deep=True)
@@ -68,6 +68,41 @@ class TestListCommand:
         result = runner.invoke(cli, ["list", "--tag", "free-tier"])
         assert result.exit_code == 0
         assert "Groq" in result.output
+
+    def test_list_csv_has_header_and_rows(self, runner):
+        result = runner.invoke(cli, ["list", "--format", "csv"])
+        assert result.exit_code == 0
+        lines = [ln for ln in result.output.strip().splitlines() if ln]
+        assert len(lines) >= 2  # header + ít nhất 1 row
+        assert "provider" in lines[0]
+        assert "model_id" in lines[0]
+        assert "Groq" in result.output
+
+    def test_list_csv_parses_with_csv_module(self, runner):
+        import csv as csv_module
+        import io as io_module
+
+        result = runner.invoke(cli, ["list", "--format", "csv"])
+        assert result.exit_code == 0
+        rows = list(csv_module.DictReader(io_module.StringIO(result.output)))
+        assert len(rows) >= 10
+        assert all("provider" in r and "model_id" in r for r in rows)
+
+    def test_list_output_saves_file_with_csv_format(self, runner, tmp_path):
+        out = tmp_path / "providers.csv"
+        result = runner.invoke(cli, ["list", "--format", "csv", "--output", str(out)])
+        assert result.exit_code == 0
+        assert out.exists()
+        content = out.read_text()
+        assert "provider" in content.splitlines()[0]
+
+    def test_list_output_csv_by_extension_only(self, runner, tmp_path):
+        """--output file.csv tự chọn CSV kể cả khi --format table."""
+        out = tmp_path / "providers.csv"
+        result = runner.invoke(cli, ["list", "--output", str(out)])
+        assert result.exit_code == 0
+        assert out.exists()
+        assert out.read_text().startswith("provider")
 
     def test_list_verify_flag(self, runner, mock_verify):
         result = runner.invoke(cli, ["list", "--verify"])
@@ -225,6 +260,19 @@ class TestVersionFlag:
     def test_cli_version_shows_prog_name(self, runner):
         result = runner.invoke(cli, ["--version"])
         assert "free-llm-provider-discovery" in result.output
+
+
+class TestServeCommand:
+    def test_serve_help_shows_options(self, runner):
+        result = runner.invoke(cli, ["serve", "--help"])
+        assert result.exit_code == 0
+        assert "--host" in result.output
+        assert "--port" in result.output
+
+    def test_serve_defaults(self, runner):
+        result = runner.invoke(cli, ["serve", "--help"])
+        assert "127.0.0.1" in result.output
+        assert "8000" in result.output
 
 
 class TestVerboseFlag:
