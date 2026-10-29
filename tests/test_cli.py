@@ -127,6 +127,22 @@ class TestCheckCommand:
         assert result.exit_code == 0
         assert "ACTIVE" in result.output
 
+    def test_check_writes_history_to_db(self, runner, mock_verify):
+        """Lệnh check phải ghi snapshot verify vào SQLite (HISTORY_DB_PATH)."""
+        import os
+
+        from src.config import get_storage_config
+        from src.storage.history import HistoryStore
+
+        runner.invoke(cli, ["check", "--provider", "groq"])
+        db_path = get_storage_config().db_path
+        assert os.path.exists(db_path), "check không ghi DB theo HISTORY_DB_PATH"
+        store = HistoryStore(db_path)
+        recs = store.get_history("Groq")
+        assert len(recs) == 1
+        assert recs[0].status == "active"
+        assert recs[0].latency_ms is not None  # check đo latency
+
 
 class TestUpdateCommand:
     def test_update_creates_output_file(self, runner, tmp_path, mock_verify):
@@ -143,6 +159,16 @@ class TestUpdateCommand:
         assert result.exit_code == 0
         assert out.exists()
         assert "providers:" in out.read_text()
+
+    def test_update_writes_history_for_all_providers(self, runner, mock_verify):
+        """Lệnh update ghi snapshot cho từng provider vào DB."""
+        from src.config import get_storage_config
+        from src.discovery import KNOWN_PROVIDERS
+        from src.storage.history import HistoryStore
+
+        runner.invoke(cli, ["update", "--output", "out.json"])
+        store = HistoryStore(get_storage_config().db_path)
+        assert store.count() >= len(KNOWN_PROVIDERS)
 
 
 class TestHealthCommand:

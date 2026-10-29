@@ -15,3 +15,5 @@ venv/
 
 # Output data (optional, giữ data/providers.json làm sample)
 # data/*.json
+data/*.db
+out.json

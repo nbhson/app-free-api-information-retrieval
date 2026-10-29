@@ -96,6 +96,48 @@ class WebhookConfig(BaseSettings):
         return errors
 
 
+class APIConfig(BaseSettings):
+    """Cấu hình REST API: API key auth (optional) + CORS."""
+
+    model_config = SettingsConfigDict(
+        env_file=_ENV_FILE if _ENV_FILE.exists() else None,
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    # Comma-separated danh sách API key hợp lệ. Rỗng = API public (không auth).
+    # VD: API_KEYS="key1,key2,key3"
+    api_keys: str = Field("", alias="API_KEYS")
+    # Comma-separated danh sách origin được phép CORS. Rỗng = không bật CORS middleware.
+    # VD: CORS_ORIGINS="https://app.example.com,https://admin.example.com"
+    cors_origins: str = Field("", alias="CORS_ORIGINS")
+
+    def get_api_keys(self) -> set[str]:
+        """Parse danh sách API key hợp lệ từ env (comma-separated)."""
+        return {k.strip() for k in self.api_keys.split(",") if k.strip()}
+
+    def get_cors_origins(self) -> list[str]:
+        """Parse danh sách origin được phép CORS từ env (comma-separated)."""
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    def is_auth_enabled(self) -> bool:
+        """Auth chỉ bật khi có ít nhất 1 API key."""
+        return bool(self.get_api_keys())
+
+
+class StorageConfig(BaseSettings):
+    """Cấu hình storage cho lịch sử verify (SQLite)."""
+
+    model_config = SettingsConfigDict(
+        env_file=_ENV_FILE if _ENV_FILE.exists() else None,
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    # Đường dẫn SQLite DB lưu lịch sử verify. Default: data/providers.db
+    db_path: Path = Field(Path("data") / "providers.db", alias="HISTORY_DB_PATH")
+
+
 @lru_cache(maxsize=1)
 def get_ai_config() -> AIConfig:
     """Singleton config — cache để env thay đổi sau import vẫn nhất quán."""
@@ -106,3 +148,15 @@ def get_ai_config() -> AIConfig:
 def get_webhook_config() -> WebhookConfig:
     """Singleton webhook config — cache để env thay đổi sau import vẫn nhất quán."""
     return WebhookConfig()
+
+
+@lru_cache(maxsize=1)
+def get_api_config() -> APIConfig:
+    """Singleton API config (auth keys + CORS)."""
+    return APIConfig()
+
+
+@lru_cache(maxsize=1)
+def get_storage_config() -> StorageConfig:
+    """Singleton storage config (DB path cho lịch sử verify)."""
+    return StorageConfig()

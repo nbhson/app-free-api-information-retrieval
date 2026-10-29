@@ -2,7 +2,17 @@
 
 import pytest
 
+from src.config import get_storage_config
 from src.models import APIStyle, AuthType, Provider, ProviderStatus
+
+
+@pytest.fixture(autouse=True)
+def _tmp_history_db(tmp_path, monkeypatch):
+    """Trỏ history DB vào tmp_path cho mọi test — không đụng data/providers.db thật."""
+    monkeypatch.setenv("HISTORY_DB_PATH", str(tmp_path / "providers.db"))
+    get_storage_config.cache_clear()
+    yield
+    get_storage_config.cache_clear()
 
 
 @pytest.fixture

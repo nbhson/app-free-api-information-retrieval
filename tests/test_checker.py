@@ -116,7 +116,8 @@ class TestVerifyProvider:
         assert result.status == ProviderStatus.ACTIVE
         assert calls["n"] == 2
 
-    def test_connect_error_retries_then_inactive(self, sample_provider, monkeypatch):
+    def test_connect_error_retries_then_unknown(self, sample_provider, monkeypatch):
+        """Connect error sau retries → UNKNOWN (lỗi mạng, không chắc endpoint chết)."""
         calls = {"n": 0}
 
         def handler(request):
@@ -125,10 +126,11 @@ class TestVerifyProvider:
 
         monkeypatch.setattr(checker.httpx, "AsyncClient", lambda **kw: _transport(handler))
         result = asyncio.run(verify_provider(sample_provider, retries=2))
-        assert result.status == ProviderStatus.INACTIVE
+        assert result.status == ProviderStatus.UNKNOWN
         assert calls["n"] == 3  # 1 lần + 2 retries
 
-    def test_timeout_retries_then_inactive(self, sample_provider, monkeypatch):
+    def test_timeout_retries_then_unknown(self, sample_provider, monkeypatch):
+        """Timeout sau retries → UNKNOWN (không đổi INACTIVE)."""
         calls = {"n": 0}
 
         def handler(request):
@@ -137,7 +139,7 @@ class TestVerifyProvider:
 
         monkeypatch.setattr(checker.httpx, "AsyncClient", lambda **kw: _transport(handler))
         result = asyncio.run(verify_provider(sample_provider, retries=1))
-        assert result.status == ProviderStatus.INACTIVE
+        assert result.status == ProviderStatus.UNKNOWN
         assert calls["n"] == 2
 
     def test_unexpected_error_is_unknown(self, sample_provider, monkeypatch):

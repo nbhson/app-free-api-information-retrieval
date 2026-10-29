@@ -6,6 +6,7 @@ import asyncio
 import difflib
 import json
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -34,11 +35,17 @@ from src.discovery.websearch.keywords import parse_keywords
 from src.logging_config import get_logger, setup_logging
 from src.models import Provider, ProviderStatus
 from src.notifications import detect_status_changes, send_webhook_notification
+from src.storage.history import record_provider_history
 from src.verification.checker import ProgressCallback, verify_all_providers, verify_provider
 
 logger = get_logger("cli")
 
 console = Console()
+
+
+def _record_history(provider: Provider, latency_ms: float | None = None) -> None:
+    """Ghi 1 snapshot lịch sử verify của provider vào SQLite (lỗi DB không làm fail CLI)."""
+    record_provider_history(provider, latency_ms=latency_ms)
 
 
 def _status_style(status: ProviderStatus) -> str:
@@ -230,7 +237,12 @@ def check(provider):
         sys.exit(1)
 
     console.print(f"[dim]Đang kiểm tra {p.name} ({p.base_url})...[/dim]")
+    start = time.perf_counter()
     p = asyncio.run(verify_provider(p))
+    latency_ms = round((time.perf_counter() - start) * 1000, 2)
+
+    # Ghi lịch sử verify vào DB (default data/providers.db, config qua HISTORY_DB_PATH)
+    _record_history(p, latency_ms=latency_ms)
 
     if p.status == ProviderStatus.ACTIVE:
         console.print(f"[green]✓[/green] {p.name}: [green]ACTIVE[/green]")
@@ -253,6 +265,11 @@ def update(output):
     originals = [p.model_copy(deep=True) for p in KNOWN_PROVIDERS]
     providers = _verify_with_progress(list(KNOWN_PROVIDERS))
     _notify_status_changes(originals, providers)
+
+    # Ghi lịch sử verify từng provider vào DB (default data/providers.db)
+    for p in providers:
+        _record_history(p)
+
     provider_list = aggregate_providers(providers)
     path = _save_output(provider_list, output)
     console.print(f"[green]✓[/green] Đã cập nhật và lưu vào [bold]{path}[/bold]")

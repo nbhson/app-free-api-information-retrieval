@@ -2,9 +2,9 @@
 Checker - Kiểm tra endpoint của provider có hoạt động không.
 
 Có concurrency limit (semaphore) và retry với exponential backoff cho:
-- Timeout / ConnectError: retry ngay lập tức với backoff
-- HTTP 429 (rate limit): retry với backoff
-- HTTP 5xx: retry với backoff
+- Timeout / ConnectError: retry với backoff; hết lượt → UNKNOWN (không chắc endpoint chết)
+- HTTP 429 (rate limit): retry với backoff, hết lượt → RATE_LIMITED
+- HTTP 5xx: retry với backoff, hết lượt → INACTIVE
 - Các lỗi khác: log và trả về UNKNOWN
 """
 
@@ -119,8 +119,11 @@ async def verify_provider(
                 result.last_verified = datetime.now(timezone.utc)
                 return result
 
-        # Fallback cuối cùng (sau khi đã retry hết)
-        result.status = ProviderStatus.INACTIVE
+        # Fallback cuối cùng (sau khi đã retry hết): timeout/connect error
+        # là lỗi phía mạng/ta — không chắc endpoint chết, đánh dấu UNKNOWN
+        # (giữ INACTIVE cho các case khác: 5xx, 4xx sau retries).
+        logger.warning("Provider %s không xác định được trạng thái sau retries", url)
+        result.status = ProviderStatus.UNKNOWN
         result.last_verified = datetime.now(timezone.utc)
         return result
 

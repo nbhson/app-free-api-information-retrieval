@@ -6,12 +6,12 @@ import json
 import re
 
 import httpx
-from rich.console import Console
 
 from src.config import AIConfig, get_ai_config
+from src.logging_config import get_logger
 from src.models import APIStyle, AuthType, Model, Provider, ProviderStatus
 
-console = Console()
+logger = get_logger(__name__)
 
 SYSTEM_PROMPT = """Bạn là một chuyên gia nghiên cứu về các LLM API providers.
 Nhiệm vụ: tìm kiếm và liệt kê các nhà cung cấp API LLM MIỄN PHÍ (free tier) hiện có.
@@ -110,7 +110,7 @@ def _parse_providers(data: dict) -> list[Provider]:
                 )
             )
         except Exception as e:
-            console.print(f"[yellow]⚠ Bỏ qua entry lỗi: {e}[/yellow]")
+            logger.warning("Bỏ qua entry lỗi khi parse AI response: %s", e)
     return providers
 
 
@@ -168,8 +168,8 @@ def discover_with_ai(config: AIConfig | None = None, max_retries: int = 2) -> li
                     else f"HTTP {resp.status_code} (server error) từ {url}"
                 )
                 if attempt < max_retries:
-                    console.print(
-                        f"[yellow]⚠ Lần {attempt + 1} lỗi: {last_error}. Thử lại...[/yellow]"
+                    logger.warning(
+                        "Lần %d lỗi: %s. Thử lại...", attempt + 1, last_error
                     )
                     continue
                 raise AIDiscoveryError(last_error)
@@ -194,6 +194,6 @@ def discover_with_ai(config: AIConfig | None = None, max_retries: int = 2) -> li
             last_error = str(e)
 
         if attempt < max_retries:
-            console.print(f"[yellow]⚠ Lần {attempt + 1} lỗi: {last_error}. Thử lại...[/yellow]")
+            logger.warning("Lần %d lỗi: %s. Thử lại...", attempt + 1, last_error)
 
     raise AIDiscoveryError(last_error or "Không rõ lỗi")
