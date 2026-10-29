@@ -31,11 +31,94 @@ python3 -m venv venv
 ./venv/bin/pip install -r requirements.txt
 ```
 
-Hoặc dùng Docker:
+## Docker
+
+Image: `free-llm-provider-discovery:latest` (multi-stage build, non-root user,
+HEALTHCHECK chạy lệnh `health` của chính CLI).
+
+### Build & chạy lệnh một-shot
+
+Mọi lệnh CLI đều chạy được qua `docker compose run app <lệnh>` — arguments
+được truyền xuyên vào `ENTRYPOINT ["python", "run.py"]`:
 
 ```bash
+# Build image
+docker compose build
+
+# Liệt kê tất cả provider
 docker compose run app list
+
+# Liệt kê + kiểm tra endpoint còn sống
 docker compose run app list --verify
+
+# Lọc theo tag
+docker compose run app list --tag free-tier
+
+# Chỉ provider không cần API key, xuất CSV
+docker compose run app list --no-auth --format csv
+
+# Kiểm tra 1 provider cụ thể
+docker compose run app check --provider groq
+
+# Cập nhật & lưu ra file JSON (volumes mount ./data → /app/data)
+docker compose run app update --output data/providers.json
+
+# Health check
+docker compose run app health
+
+# AI discovery (cần .env chứa AI_API_KEY)
+docker compose run app discover-ai --verify
+
+# Live discovery (OpenRouter, không cần key)
+docker compose run app discover-live --output data/live_free.json
+
+# Deep Web Search
+docker compose run app discover-web --keywords "free llm api"
+
+# Xem help
+docker compose run app --help
+docker compose run app list --help
+```
+
+> Kết quả `--output` lưu vào `./data` trên host nhờ volume mount
+> (`./data:/app/data`). Command mặc định của service `app` là `list`,
+> nên `docker compose run app` (không args) cũng chạy được.
+
+### REST API server (lâu dài)
+
+```bash
+docker compose up api          # serve --host 0.0.0.0 --port 8000
+docker compose logs -f api     # xem log
+docker compose down api        # dừng
+```
+
+- API: `http://localhost:8000` — Swagger UI: `http://localhost:8000/docs`
+- `restart: unless-stopped` — tự khởi động lại khi Docker host reboot.
+
+Chạy bằng `docker run` thuần (không compose):
+
+```bash
+docker build -t free-llm-provider-discovery .
+docker run --rm --env-file .env -v $(pwd)/data:/app/data free-llm-provider-discovery list --verify
+docker run --rm -p 8000:8000 --env-file .env free-llm-provider-discovery serve --host 0.0.0.0 --port 8000
+```
+
+### Yêu cầu `.env`
+
+`docker-compose.yml` dùng `env_file: .env` — file phải tồn tại trước khi
+chạy `docker compose up` / `run`. Nếu chưa có:
+
+```bash
+cp .env.example .env
+```
+
+### Healthcheck trong container
+
+Docker tự ping health:
+
+```bash
+docker inspect --format='{{json .State.Health}}' free-llm-provider-discovery_api
+docker inspect free-llm-provider-discovery_api | grep -A 10 '"Health"'
 ```
 
 ## Sử dụng
@@ -226,7 +309,7 @@ curl http://localhost:8000/api/v1/providers?tag=free-tier
 curl http://localhost:8000/api/v1/providers/groq
 ```
 
-Hoặc dùng Docker:
+Hoặc dùng Docker (xem section [Docker](#docker)):
 
 ```bash
 docker compose up api   # API chạy tại http://localhost:8000
@@ -354,8 +437,8 @@ fetch_openrouter_free_models(timeout=30.0)
 ```
 
 ### Docker: `.env` không được mount
-`docker-compose.yml` dùng `env_file: .env` — đảm bảo file tồn tại trước khi
-chạy `docker compose up`. Nếu chưa có, tạo từ `.env.example`.
+Xem section [Docker](#docker) — chạy `cp .env.example .env` trước khi
+`docker compose up`.
 
 ### Webhook không gửi notification
 1. Kiểm tra `WEBHOOK_URL` đã set trong `.env` chưa (trống = tắt).
@@ -432,7 +515,7 @@ pip install -r requirements-dev.txt
 pip install pre-commit && pre-commit install
 pre-commit run --all-files  # chạy trên toàn repo
 
-# Docker
+# Docker (đầy đủ: xem section "Docker" bên trên)
 docker compose run app list
 ```
 
