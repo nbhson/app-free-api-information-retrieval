@@ -72,8 +72,11 @@ docker compose run app discover-ai --verify
 # Live discovery (OpenRouter, không cần key)
 docker compose run app discover-live --output data/live_free.json
 
-# Deep Web Search
-docker compose run app discover-web --keywords "free llm api"
+# ⭐ Deep Web Search — "tìm ngẫu nhiên" provider mới từ internet thật
+# (Reddit/HN/DDG/GitHub, nhiều keyword, verify + lưu ra file)
+docker compose run app discover-web \
+  -k "free llm api 2026, cheap inference api, free tier chat completions" \
+  --verify --output data/web_providers.json
 
 # Xem help
 docker compose run app --help
@@ -246,11 +249,44 @@ registry cứng:
 ./venv/bin/python run.py discover-live --show-all-models
 ```
 
+## 🔎 Deep Web Search ("tìm ngẫu nhiên" provider mới từ internet)
+
+Lệnh `discover-web` search **trực tiếp các nguồn internet công khai** — Reddit,
+Hacker News, DuckDuckGo, GitHub — với từ khoá tuỳ ý, rồi trích xuất provider từ
+kết quả. Đây là cách tìm provider mới nổi chưa có trong registry:
+
+```bash
+# ⭐ Tìm ngẫu nhiên — quét mọi nguồn, nhiều keyword, verify + lưu kết quả
+./venv/bin/python run.py discover-web \
+  -k "free llm api 2026, cheap inference api, free tier chat completions" \
+  --verify --output data/web_providers.json
+
+# Chỉ định nguồn cụ thể (mặc định: tất cả)
+./venv/bin/python run.py discover-web --sources github,hackernews --max-results 5
+
+# Mode AI: LLM đọc nội dung trang thật để trích xuất (cần .env)
+./venv/bin/python run.py discover-web --mode ai --pages 10
+```
+
+**Docker:**
+
+```bash
+docker compose run app discover-web \
+  -k "free llm api 2026, cheap inference api, free tier chat completions" \
+  --verify --output data/web_providers.json
+```
+
+> 💡 **Nguồn dữ liệu là internet thật** (API công khai của Reddit/HN/DDG/GitHub),
+> không phải trí nhớ AI — nhưng tỉ lệ tìm được provider mới phụ thuộc keyword.
+> Nếu báo "Không tìm thấy provider mới nào" (kết quả trùng registry hoặc không
+> trích xuất được endpoint), thử keyword khác hoặc dùng `--sources shared` bên
+> dưới. Reddit có thể bị chặn ở một số mạng — app tự bỏ qua nguồn lỗi, không crash.
+
 So sánh 4 chế độ discovery:
 
 | Chế độ | Nguồn dữ liệu | Cần key | Độ tươi |
 |---|---|---|---|
-| `list` | Registry cứng trong code (22 providers) | ❌ | Cũ nhất (theo lần curate) |
+| `list` | Registry cứng trong code (23 providers) | ❌ | Cũ nhất (theo lần curate) |
 | `discover-ai` | Trí nhớ của LLM | ✅ (AI key) | Cũ (training data) |
 | `discover-live` | **OpenRouter API trực tiếp** | ❌ | **Mới nhất** ✅ |
 | `discover-web` | **5 nguồn internet thật** (Reddit/HN/DDG/GitHub/LMSpeed) | ❌ | **Mới nhất** ✅ |
