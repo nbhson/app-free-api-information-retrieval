@@ -61,7 +61,9 @@ def _http_get(url: str, timeout: float = DEFAULT_TIMEOUT) -> httpx.Response:
     raise httpx.HTTPError(last_error or f"Lỗi không xác định khi gọi {url}")
 
 
-def _safe_backend(name: str, fn, query: str, max_results: int, timeout: float) -> list[SearchResult]:
+def _safe_backend(
+    name: str, fn, query: str, max_results: int, timeout: float
+) -> list[SearchResult]:
     """Chạy 1 backend, nuốt mọi exception → trả về [] với warning (graceful)."""
     try:
         return fn(query, max_results, timeout)
@@ -74,7 +76,10 @@ def _safe_backend(name: str, fn, query: str, max_results: int, timeout: float) -
 # Reddit — JSON API public: reddit.com/search.json
 # ---------------------------------------------------------------------------
 
-def search_reddit(query: str, max_results: int = DEFAULT_MAX_RESULTS, timeout: float = DEFAULT_TIMEOUT) -> list[SearchResult]:
+
+def search_reddit(
+    query: str, max_results: int = DEFAULT_MAX_RESULTS, timeout: float = DEFAULT_TIMEOUT
+) -> list[SearchResult]:
     """Search posts Reddit (public JSON, không cần key)."""
     url = (
         "https://www.reddit.com/search.json"
@@ -105,7 +110,10 @@ def search_reddit(query: str, max_results: int = DEFAULT_MAX_RESULTS, timeout: f
 # Hacker News — Algolia API public: hn.algolia.com/api/v1/search
 # ---------------------------------------------------------------------------
 
-def search_hackernews(query: str, max_results: int = DEFAULT_MAX_RESULTS, timeout: float = DEFAULT_TIMEOUT) -> list[SearchResult]:
+
+def search_hackernews(
+    query: str, max_results: int = DEFAULT_MAX_RESULTS, timeout: float = DEFAULT_TIMEOUT
+) -> list[SearchResult]:
     """Search stories trên Hacker News (Algolia API public, không cần key)."""
     url = f"https://hn.algolia.com/api/v1/search?query={quote_plus(query)}&tags=story&hitsPerPage={max_results}"
     resp = _http_get(url, timeout)
@@ -139,7 +147,9 @@ def search_hackernews(query: str, max_results: int = DEFAULT_MAX_RESULTS, timeou
 # ---------------------------------------------------------------------------
 
 _DDG_LINK_RE = re.compile(r'<a[^>]+href="([^"]+)"[^>]*class="result__a"[^>]*>(.*?)</a>', re.DOTALL)
-_DDG_LINK_RE_ALT = re.compile(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', re.DOTALL)
+_DDG_LINK_RE_ALT = re.compile(
+    r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', re.DOTALL
+)
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _DDG_REDIRECT_RE = re.compile(r"[?&]uddg=([^&]+)")
 
@@ -170,7 +180,9 @@ BROWSER_HEADERS = {
 }
 
 
-def search_duckduckgo(query: str, max_results: int = DEFAULT_MAX_RESULTS, timeout: float = DEFAULT_TIMEOUT) -> list[SearchResult]:
+def search_duckduckgo(
+    query: str, max_results: int = DEFAULT_MAX_RESULTS, timeout: float = DEFAULT_TIMEOUT
+) -> list[SearchResult]:
     """Search DuckDuckGo (HTML endpoint, không cần key — unofficial, có thể flaky)."""
     resp = httpx.post(
         "https://html.duckduckgo.com/html/",
@@ -197,7 +209,10 @@ def search_duckduckgo(query: str, max_results: int = DEFAULT_MAX_RESULTS, timeou
 # GitHub — Search API public (unauthenticated, 10 req/phút)
 # ---------------------------------------------------------------------------
 
-def search_github(query: str, max_results: int = DEFAULT_MAX_RESULTS, timeout: float = DEFAULT_TIMEOUT) -> list[SearchResult]:
+
+def search_github(
+    query: str, max_results: int = DEFAULT_MAX_RESULTS, timeout: float = DEFAULT_TIMEOUT
+) -> list[SearchResult]:
     """Search repos GitHub về free LLM API (awesome-lists, tools, ...)."""
     url = (
         f"https://api.github.com/search/repositories?q={quote_plus(query)}"
@@ -227,6 +242,7 @@ def search_github(query: str, max_results: int = DEFAULT_MAX_RESULTS, timeout: f
 # (bảng shared keys do cộng đồng submit). Đây là nguồn "bansos": API key
 # miễn phí do cộng đồng chia sẻ, OpenAI-compatible.
 # ---------------------------------------------------------------------------
+
 
 def _domain_of_url(url: str) -> str:
     try:
@@ -296,7 +312,9 @@ def fetch_lmspeed_shared_keys(timeout: float = DEFAULT_TIMEOUT) -> list[SearchRe
     return results
 
 
-def search_shared_keys(query: str, max_results: int = DEFAULT_MAX_RESULTS, timeout: float = DEFAULT_TIMEOUT) -> list[SearchResult]:
+def search_shared_keys(
+    query: str, max_results: int = DEFAULT_MAX_RESULTS, timeout: float = DEFAULT_TIMEOUT
+) -> list[SearchResult]:
     """
     Nguồn 'shared' — trang web chia sẻ API key cộng đồng (không cần key):
     - Crown AI status API: pool sống/chết, model nào online ngay bây giờ
@@ -366,8 +384,10 @@ def parse_sources(raw: str | None) -> list[str]:
         if name in SEARCH_BACKENDS and name not in valid:
             valid.append(name)
         elif name not in SEARCH_BACKENDS:
-            console.print(f"[yellow]⚠ Nguồn không hợp lệ: '{part.strip()}' (bỏ qua). "
-                          f"Các nguồn hợp lệ: {', '.join(AVAILABLE_SOURCES)}[/yellow]")
+            console.print(
+                f"[yellow]⚠ Nguồn không hợp lệ: '{part.strip()}' (bỏ qua). "
+                f"Các nguồn hợp lệ: {', '.join(AVAILABLE_SOURCES)}[/yellow]"
+            )
     return valid or AVAILABLE_SOURCES
 
 
@@ -394,8 +414,7 @@ def run_search(
             continue
         found = 0
         for keyword in keywords:
-            scoped = keyword if "site:" in keyword.lower() else keyword
-            for r in _safe_backend(source, backend, scoped, max_results, timeout):
+            for r in _safe_backend(source, backend, keyword, max_results, timeout):
                 if r.url.lower() in seen_urls:
                     continue
                 seen_urls.add(r.url.lower())

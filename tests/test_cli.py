@@ -7,6 +7,7 @@ from click.testing import CliRunner
 
 from src.cli.main import cli
 from src.models import ProviderStatus
+from src.verification import SmokeTestError
 
 
 @pytest.fixture
@@ -19,7 +20,7 @@ def mock_verify(monkeypatch):
     """Mock verify_* để không gọi mạng thật — trả về copy, không mutate registry."""
     import src.cli.main as m
 
-    async def fake_verify_one(prov, timeout=10.0, retries=2):
+    async def fake_verify_one(prov, timeout=10.0, retries=2, api_key=None, parse_models=False):
         result = prov.model_copy(deep=True)
         result.status = ProviderStatus.ACTIVE
         return result
@@ -125,7 +126,7 @@ class TestCheckCommand:
     def test_check_success_shows_active(self, runner, mock_verify):
         result = runner.invoke(cli, ["check", "--provider", "groq"])
         assert result.exit_code == 0
-        assert "ACTIVE" in result.output
+        assert "active" in result.output.lower()
 
     def test_check_writes_history_to_db(self, runner, mock_verify):
         """Lệnh check phải ghi snapshot verify vào SQLite (HISTORY_DB_PATH)."""
@@ -226,7 +227,7 @@ class TestCheckExitCodes:
         monkeypatch.setattr(m, "verify_provider", fake_rl)
         result = runner.invoke(cli, ["check", "--provider", "groq"])
         assert result.exit_code == 2
-        assert "RATE_LIMITED" in result.output
+        assert "rate_limited" in result.output.lower()
 
 
 class TestListVerifyExitCode:
@@ -237,7 +238,7 @@ class TestListVerifyExitCode:
     def test_list_verify_exit_1_when_inactive_found(self, runner, monkeypatch):
         import src.cli.main as m
 
-        async def fake_some_inactive(provs):
+        async def fake_some_inactive(provs, progress_callback=None):
             result = []
             for p in provs:
                 cp = p.model_copy(deep=True)
@@ -248,6 +249,7 @@ class TestListVerifyExitCode:
         monkeypatch.setattr(m, "verify_all_providers", fake_some_inactive)
         result = runner.invoke(cli, ["list", "--verify"])
         assert result.exit_code == 1
+        assert result.exception is None or isinstance(result.exception, SystemExit)
 
 
 class TestDiscoverAIDedup:
@@ -356,3 +358,154 @@ class TestDiscoverLiveCommand:
         assert data["total_count"] == 1
         assert data["providers"][0]["name"] == "OpenRouter"
         assert len(data["providers"][0]["models"]) == 2
+
+
+class TestListVerifyOutputRegression:
+    def test_list_verify_output_saves_file_even_with_inactive(self, runner, tmp_path, monkeypatch):
+        """Regression: --output phải được lưu kể cả khi có provider chết (exit code 1).
+
+        Trước fix, sys.exit(1) chạy trước khi lưu file → CI mất toàn bộ dữ liệu verify.
+        """
+        import src.cli.main as m
+
+        async def fake_some_inactive(provs, progress_callback=None):
+            result = []
+            for p in provs:
+                cp = p.model_copy(deep=True)
+                cp.status = ProviderStatus.INACTIVE if p.name == "Groq" else ProviderStatus.ACTIVE
+                result.append(cp)
+            return result
+
+        monkeypatch.setattr(m, "verify_all_providers", fake_some_inactive)
+        out = tmp_path / "verified.json"
+        result = runner.invoke(cli, ["list", "--verify", "--output", str(out)])
+        assert result.exit_code == 1  # vẫn exit 1 cho CI/hooks
+        assert out.exists(), "--output bị mất khi exit 1 (bug cũ)"
+        data = json.loads(out.read_text())
+        assert data["total_count"] >= 10
+        # Provider chết vẫn có trong file với status inactive
+        groq = next(p for p in data["providers"] if p["name"] == "Groq")
+        assert groq["status"] == "inactive"
+
+
+class TestCheckDeepVerify:
+    """check --api-key / --sync-models / --smoke: deep verification."""
+
+    def test_check_sync_models_shows_live_list(self, runner, monkeypatch):
+        import src.cli.main as m
+
+        async def fake_verify(prov, timeout=10.0, retries=2, api_key=None, parse_models=False):
+            result = prov.model_copy(deep=True)
+            result.status = ProviderStatus.ACTIVE
+            if parse_models:
+                from src.models import Model
+
+                result.models = [
+                    Model(id="live-a", name="Live A"),
+                    Model(id="live-b", name="Live B"),
+                ]
+            return result
+
+        monkeypatch.setattr(m, "verify_provider", fake_verify)
+        result = runner.invoke(cli, ["check", "-p", "groq", "--sync-models"])
+        assert result.exit_code == 0
+        assert "live-a" in result.output
+        assert "live-b" in result.output
+
+    def test_check_smoke_requires_api_key(self, runner, mock_verify):
+        result = runner.invoke(cli, ["check", "-p", "groq", "--smoke", "some-model"])
+        assert result.exit_code == 1
+        assert "--api-key" in result.output
+
+    def test_check_smoke_success(self, runner, mock_verify, monkeypatch):
+        import src.cli.main as m
+
+        async def fake_smoke(prov, model_id, api_key=None, prompt="", **kw):
+            return {
+                "content": "OK",
+                "model": model_id,
+                "latency_ms": 123.4,
+                "finish_reason": "stop",
+                "usage": {"total_tokens": 10},
+            }
+
+        monkeypatch.setattr(m, "smoke_test_chat", fake_smoke)
+        result = runner.invoke(
+            cli, ["check", "-p", "groq", "--api-key", "sk-test", "--smoke", "llama-3"]
+        )
+        assert result.exit_code == 0
+        assert "Smoke test OK" in result.output
+        assert "OK" in result.output
+
+    def test_check_smoke_failure_exits_1(self, runner, mock_verify, monkeypatch):
+        import src.cli.main as m
+
+        async def fake_smoke_fail(prov, model_id, api_key=None, prompt="", **kw):
+            raise SmokeTestError(f"HTTP 401 từ provider (model={model_id})")
+
+        monkeypatch.setattr(m, "smoke_test_chat", fake_smoke_fail)
+        result = runner.invoke(
+            cli, ["check", "-p", "groq", "--api-key", "sk-test", "--smoke", "llama-3"]
+        )
+        assert result.exit_code == 1
+        assert "Smoke test thất bại" in result.output
+
+    def test_check_api_key_passed_to_verifier(self, runner, monkeypatch):
+        """--api-key phải được forward vào verify_provider."""
+        import src.cli.main as m
+
+        captured: dict = {}
+
+        async def fake_verify(prov, timeout=10.0, retries=2, api_key=None, parse_models=False):
+            captured["api_key"] = api_key
+            captured["parse_models"] = parse_models
+            result = prov.model_copy(deep=True)
+            result.status = ProviderStatus.ACTIVE
+            return result
+
+        monkeypatch.setattr(m, "verify_provider", fake_verify)
+        result = runner.invoke(
+            cli, ["check", "-p", "groq", "--api-key", "sk-secret", "--sync-models"]
+        )
+        assert result.exit_code == 0
+        assert captured["api_key"] == "sk-secret"
+        assert captured["parse_models"] is True
+
+    def test_check_api_key_from_env(self, runner, monkeypatch):
+        """Env PROVIDER_API_KEY được dùng khi không có --api-key."""
+        import src.cli.main as m
+
+        captured: dict = {}
+
+        async def fake_verify(prov, timeout=10.0, retries=2, api_key=None, parse_models=False):
+            captured["api_key"] = api_key
+            result = prov.model_copy(deep=True)
+            result.status = ProviderStatus.ACTIVE
+            return result
+
+        monkeypatch.setattr(m, "verify_provider", fake_verify)
+        monkeypatch.setenv("PROVIDER_API_KEY", "sk-from-env")
+        result = runner.invoke(cli, ["check", "-p", "groq"])
+        assert result.exit_code == 0
+        assert captured["api_key"] == "sk-from-env"
+
+
+class TestUpstageInRegistry:
+    """Upstage provider mới thêm vào registry — đúng metadata và model đã test thật."""
+
+    def test_upstage_exists(self):
+        from src.discovery import get_provider_by_name
+
+        p = get_provider_by_name("upstage")
+        assert p is not None
+        assert p.base_url == "https://api.upstage.ai/v1"
+        assert p.status == ProviderStatus.ACTIVE
+        assert p.api_style.value == "openai"
+
+    def test_upstage_has_solar_pro4(self):
+        from src.discovery import get_provider_by_name
+
+        p = get_provider_by_name("upstage")
+        model_ids = [m.id for m in p.models]
+        assert "solar-pro4" in model_ids
+        assert "solar-mini4" in model_ids

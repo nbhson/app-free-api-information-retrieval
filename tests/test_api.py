@@ -276,3 +276,42 @@ class TestAPIKeyAuth:
 def client_get(client: TestClient, path: str, key: str | None) -> Any:
     headers = {"X-API-Key": key} if key else {}
     return client.get(path, headers=headers)
+
+
+class TestSecurityHeaders:
+    """Enterprise hardening: security headers trên mọi response."""
+
+    def test_headers_on_data_endpoint(self, client):
+        resp = client.get("/api/v1/providers")
+        assert resp.headers["X-Content-Type-Options"] == "nosniff"
+        assert resp.headers["X-Frame-Options"] == "DENY"
+        assert resp.headers["Referrer-Policy"] == "no-referrer"
+        assert resp.headers["Cache-Control"] == "no-store"
+
+    def test_headers_on_404(self, client):
+        resp = client.get("/api/v1/providers/nonexistent-xyz")
+        assert resp.status_code == 404
+        assert resp.headers["X-Content-Type-Options"] == "nosniff"
+
+    def test_headers_on_401(self, client, monkeypatch):
+        monkeypatch.setenv("API_KEYS", "secret1")
+        get_api_config.cache_clear()
+        try:
+            resp = client.get("/api/v1/providers")
+            assert resp.status_code == 401
+            assert resp.headers["X-Frame-Options"] == "DENY"
+        finally:
+            get_api_config.cache_clear()
+
+
+class TestGzip:
+    def test_gzip_applied_when_accepted(self, client):
+        """Response lớn (>1KB) phải được nén khi client Accept-Encoding: gzip."""
+        resp = client.get("/api/v1/providers", headers={"Accept-Encoding": "gzip"})
+        assert resp.status_code == 200
+        assert resp.headers.get("Content-Encoding") == "gzip"
+
+    def test_no_gzip_when_not_accepted(self, client):
+        resp = client.get("/api/v1/providers", headers={"Accept-Encoding": "identity"})
+        assert resp.status_code == 200
+        assert resp.headers.get("Content-Encoding") != "gzip"

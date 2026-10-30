@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -85,7 +86,9 @@ class HistoryStore:
             models_count=models_count,
             error=error,
         )
-        with self._connect() as conn:
+        # closing() đóng connection (with sqlite3.Connection chỉ commit/rollback
+        # transaction, KHÔNG close) + `conn` manager commit transaction ghi.
+        with closing(self._connect()) as conn, conn:
             conn.execute(
                 "INSERT INTO verify_history "
                 "(provider_name, status, latency_ms, checked_at, models_count, error) "
@@ -132,7 +135,7 @@ class HistoryStore:
             query += " LIMIT ? OFFSET ?"
             params.extend([limit, offset])
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             rows = conn.execute(query, params).fetchall()
         return [
             HistoryRecord(
@@ -153,7 +156,7 @@ class HistoryStore:
         Trả về {"total_checks": n, "active_count": k, "uptime_percent": k/n*100}.
         uptime_percent = None nếu chưa có lần verify nào.
         """
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             row = conn.execute(
                 "SELECT COUNT(*), "
                 "SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) "
@@ -167,13 +170,12 @@ class HistoryStore:
 
     def count(self, provider_name: str | None = None) -> int:
         """Số snapshot đã lưu (toàn bộ DB, hoặc theo provider)."""
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             if provider_name is None:
                 row = conn.execute("SELECT COUNT(*) FROM verify_history").fetchone()
             else:
                 row = conn.execute(
-                    "SELECT COUNT(*) FROM verify_history "
-                    "WHERE provider_name = ? COLLATE NOCASE",
+                    "SELECT COUNT(*) FROM verify_history WHERE provider_name = ? COLLATE NOCASE",
                     (provider_name,),
                 ).fetchone()
         return int(row[0]) if row else 0

@@ -126,3 +126,30 @@ class TestCsv:
         rows = list(csv_module.DictReader(io_module.StringIO(text)))
         assert len(rows) == 2
         assert {r["model_id"] for r in rows} == {"free-m", "free-m2"}
+
+
+class TestCsvModelLessProvider:
+    def test_provider_without_free_models_still_gets_row(self):
+        """Regression: provider không có model free vẫn xuất 1 row CSV (không mất dữ liệu)."""
+        import csv as csv_module
+        import io as io_module
+
+        p = _minimal_provider()
+        p.models = [Model(id="paid-m", name="Paid M", is_free=False)]
+        pl = aggregator.aggregate_providers([p])
+        text = aggregator.providers_to_csv(pl)  # only_free=True mặc định
+        rows = list(csv_module.DictReader(io_module.StringIO(text)))
+        assert len(rows) == 1
+        assert rows[0]["provider"] == "Mini"
+        assert rows[0]["model_id"] == ""
+        assert rows[0]["base_url"] == "https://api.test.com/v1"
+
+    def test_provider_without_any_models_still_gets_row(self, tmp_path):
+        p = _minimal_provider()
+        p.models = []
+        pl = aggregator.aggregate_providers([p])
+        path = tmp_path / "out.csv"
+        aggregator.save_to_csv(pl, str(path))
+        content = path.read_text()
+        assert "Mini" in content
+        assert len(content.strip().splitlines()) == 2  # header + 1 row trống model

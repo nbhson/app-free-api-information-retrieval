@@ -40,6 +40,14 @@ def _make_config() -> AIConfig:
     )
 
 
+@pytest.fixture(autouse=True)
+def _no_backoff_sleep(monkeypatch):
+    """Backoff retry không sleep thật trong test — ghi lại khoảng sleep để assert."""
+    slept: list[float] = []
+    monkeypatch.setattr(ai_agent.time, "sleep", slept.append)
+    return slept
+
+
 class TestExtractJson:
     def test_plain_json(self):
         assert _extract_json('{"a": 1}') == {"a": 1}
@@ -121,7 +129,7 @@ class TestDiscoverWithAI:
         assert len(providers) == 1
         assert providers[0].tags == ["t1", "ai-discovered"]
 
-    def test_retries_on_timeout(self, monkeypatch):
+    def test_retries_on_timeout(self, monkeypatch, _no_backoff_sleep):
         calls = {"n": 0}
 
         def fake_post(url, **kw):
@@ -132,8 +140,9 @@ class TestDiscoverWithAI:
         with pytest.raises(AIDiscoveryError, match="Timeout"):
             discover_with_ai(config=_make_config(), max_retries=2)
         assert calls["n"] == 3
+        assert _no_backoff_sleep == [1.0, 2.0]
 
-    def test_retries_on_429_then_raises(self, monkeypatch):
+    def test_retries_on_429_then_raises(self, monkeypatch, _no_backoff_sleep):
         """HTTP 429 là lỗi tạm thời — phải retry hết lượt rồi mới raise."""
         calls = {"n": 0}
 
@@ -145,6 +154,8 @@ class TestDiscoverWithAI:
         with pytest.raises(AIDiscoveryError, match="429"):
             discover_with_ai(config=_make_config(), max_retries=2)
         assert calls["n"] == 3
+        # Backoff exponential giữa các lần retry (không đánh ngay vào server 429)
+        assert _no_backoff_sleep == [1.0, 2.0]
 
     def test_recovers_on_429(self, monkeypatch):
         """429 ở lần đầu, thành công ở lần sau → trả về providers."""

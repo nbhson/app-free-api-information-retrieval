@@ -261,7 +261,68 @@ FREE_AI_ID = Provider(
     api_style=APIStyle.OPENAI,
     auth_required=True,
     rate_limit="Quota theo pool community — xem trang chủ",
-    tags=["free-tier", "openai-compatible", "community-pool", "indonesia", "no-signup", "unverified-models"],
+    tags=[
+        "free-tier",
+        "openai-compatible",
+        "community-pool",
+        "indonesia",
+        "no-signup",
+        "unverified-models",
+    ],
+)
+
+# ─── UPSTAGE (Solar) ───
+# Provider AI Hàn Quốc (Upstage — solar family). OpenAI-compatible hoàn toàn.
+# Đã test thật 2026-10-30: GET /v1/models trả 9 model, chat completion
+# solar-pro4 hoạt động (trả "OK" đúng chuẩn OpenAI).
+UPSTAGE_MODELS = [
+    Model(
+        id="solar-pro4",
+        name="Solar Pro 4",
+        is_free=True,
+        supports_streaming=True,
+        description="Model flagship solar-pro4 — đã smoke test chat completion OK",
+    ),
+    Model(
+        id="solar-mini4",
+        name="Solar Mini 4",
+        is_free=True,
+        supports_streaming=True,
+    ),
+    Model(
+        id="solar-jev",
+        name="Solar JEV",
+        is_free=True,
+        supports_streaming=True,
+    ),
+    Model(
+        id="solar-decide",
+        name="Solar Decide",
+        is_free=True,
+        supports_streaming=True,
+    ),
+    Model(
+        id="syn-pro",
+        name="Syn Pro",
+        is_free=True,
+        supports_streaming=True,
+    ),
+]
+
+UPSTAGE = Provider(
+    name="Upstage",
+    base_url="https://api.upstage.ai/v1",
+    website="https://www.upstage.ai",
+    description="Provider AI Hàn Quốc (Upstage — dòng solar). OpenAI-compatible, "
+    "free tier với credit tặng khi đăng ký. Key lấy tại console.upstage.ai, "
+    "dạng up_...",
+    models=UPSTAGE_MODELS,
+    status=ProviderStatus.ACTIVE,
+    auth_type=AuthType.API_KEY,
+    api_style=APIStyle.OPENAI,
+    auth_required=True,
+    rate_limit="Free tier: credit tặng ban đầu; rate limit theo gói",
+    tags=["free-tier", "openai-compatible", "korea", "solar", "popular"],
 )
 
 KNOWN_PROVIDERS_PART3: list[Provider] = [
@@ -272,4 +333,5 @@ KNOWN_PROVIDERS_PART3: list[Provider] = [
     SAMBANOVA,
     CROWN_AI,
     FREE_AI_ID,
+    UPSTAGE,
 ]

@@ -139,6 +139,11 @@ docker inspect free-llm-provider-discovery_api | grep -A 10 '"Health"'
 # Kiểm tra 1 provider cụ thể
 ./venv/bin/python run.py check --provider groq
 
+# Kiểm tra provider với API key thật + lấy model list live + test inference
+./venv/bin/python run.py check -p upstage --api-key up_... --sync-models
+./venv/bin/python run.py check -p upstage --api-key up_... --smoke solar-pro4
+# (hoặc export PROVIDER_API_KEY=up_... rồi bỏ --api-key)
+
 # Cập nhật & lưu ra file JSON
 ./venv/bin/python run.py update --output data/providers.json
 
@@ -159,6 +164,32 @@ docker inspect free-llm-provider-discovery_api | grep -A 10 '"Health"'
 # Bật debug logging
 ./venv/bin/python run.py list --verbose
 ```
+
+## 🔍 Deep Verification (kiểm tra thật với API key)
+
+Mặc định `check` chỉ ping `/models` không auth (phân biệt endpoint sống/chết).
+Với provider có API key của bạn, `check` hỗ trợ 3 mức kiểm tra sâu dần:
+
+```bash
+# Mức 1: verify CÓ auth — phân biệt "endpoint sống" vs "key hợp lệ"
+./venv/bin/python run.py check -p upstage --api-key up_abc123
+
+# Mức 2: --sync-models — lấy danh sách model THẬT từ /models
+#   (thay cho danh sách tĩnh trong registry; chấp nhận chuẩn OpenAI
+#    {"data": [...]} và các biến thể {"models": [...]}, list string, key "model")
+./venv/bin/python run.py check -p upstage --api-key up_abc123 --sync-models
+
+# Mức 3: --smoke MODEL — chat completion thật end-to-end (max_tokens nhỏ,
+#   tiết kiệm quota). Báo latency / tokens / finish_reason. Lỗi → exit 1.
+./venv/bin/python run.py check -p upstage --api-key up_abc123 --smoke solar-pro4
+
+# Không muốn gõ key mỗi lần: đặt trong .env
+#   PROVIDER_API_KEY=up_abc123
+./venv/bin/python run.py check -p upstage --smoke solar-pro4
+```
+
+Lỗi smoke test (HTTP 401/403, timeout, response sai chuẩn, content rỗng) được
+báo rõ ràng với message từ chính provider — exit code 1 để CI/hooks bắt được.
 
 ## 🤖 AI Discovery (tìm provider bằng AI)
 
@@ -378,7 +409,7 @@ src/
     └── main.py                  # Click CLI: list / check / update / discover-ai / discover-live / health / serve
 ```
 
-## Provider hiện có (20)
+## Provider hiện có (23)
 
 | Provider | Free tier | OpenAI-compatible | Ghi chú |
 |----------|-----------|-------------------|---------|
@@ -402,6 +433,9 @@ src/
 | Cerebras | ✅ | ✅ | inference nhanh nhất (WSE) |
 | SambaNova | ✅ | ✅ | custom RDU chip |
 | Replicate | ❌ (paid-only) | ❌ (custom) | trả phí theo giây chạy |
+| Crown AI | ✅ (community pool) | ✅ | 1 key miễn phí, lấy tại crown.ai.id/bansos |
+| free.ai.id | ✅ (community pool) | ✅ | không cần đăng ký, key lấy tại free.ai.id |
+| Upstage (Solar) | ✅ (credit tặng) | ✅ | Hàn Quốc; solar-pro4 đã smoke test OK |
 
 ## Đóng góp
 
@@ -501,7 +535,7 @@ CLI `run.py --version` hiển thị version hiện tại.
 # Cài dev dependencies (pytest, ruff, mypy, ...)
 pip install -r requirements-dev.txt
 
-# Chạy test suite (181 tests, coverage ≥ 90%)
+# Chạy test suite (313 tests, coverage ≥ 90%)
 ./venv/bin/python -m pytest tests/ --cov=src
 
 # Lint + format

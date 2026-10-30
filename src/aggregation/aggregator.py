@@ -96,26 +96,39 @@ def _csv_rows(provider_list: ProviderList, only_free: bool) -> list[dict[str, An
     """Flatten provider + model thành rows cho CSV."""
     rows: list[dict[str, Any]] = []
     for prov in provider_list.providers:
+        base = {
+            "provider": prov.name,
+            "base_url": prov.base_url,
+            "status": prov.status.value,
+            "auth_required": prov.auth_required,
+            "api_style": prov.api_style.value,
+            "tags": ", ".join(prov.tags),
+            "rate_limit": prov.rate_limit or "",
+            "last_updated": provider_list.last_updated.isoformat(),
+        }
         models = prov.get_free_models() if only_free else prov.models
         if not models:
             # Provider không có model (sau lọc) — vẫn xuất 1 row để không mất dữ liệu
-            models = []
+            rows.append(
+                {
+                    **base,
+                    "model_id": "",
+                    "model_name": "",
+                    "is_free": "",
+                    "context_length": "",
+                    "supports_streaming": "",
+                }
+            )
+            continue
         for model in models:
             rows.append(
                 {
-                    "provider": prov.name,
-                    "base_url": prov.base_url,
-                    "status": prov.status.value,
-                    "auth_required": prov.auth_required,
-                    "api_style": prov.api_style.value,
-                    "tags": ", ".join(prov.tags),
+                    **base,
                     "model_id": model.id,
                     "model_name": model.name,
                     "is_free": model.is_free,
                     "context_length": model.context_length if model.context_length else "",
                     "supports_streaming": model.supports_streaming,
-                    "rate_limit": prov.rate_limit or "",
-                    "last_updated": provider_list.last_updated.isoformat(),
                 }
             )
     return rows

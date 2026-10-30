@@ -3,7 +3,7 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
-COPY requirements.txt requirements-dev.txt ./
+COPY requirements.txt ./
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # ─── Runtime stage ───
@@ -16,6 +16,10 @@ LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.source="https://github.com/nguyenson/app-free-api-information-retrieval"
 
 WORKDIR /app
+
+# Chuẩn container: không ghi .pyc (filesystem có thể read-only), log ra stdout ngay
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
 # Copy installed packages từ builder
 COPY --from=builder /install /usr/local

@@ -57,6 +57,7 @@ MAX_PAGE_CHARS = 6000  # truncate nội dung trang trước khi gửi cho LLM
 # Heuristic extraction
 # ---------------------------------------------------------------------------
 
+
 def _domain_of(url: str) -> str:
     """Lấy domain gốc (bỏ www.) từ URL — trả '' nếu parse lỗi."""
     try:
@@ -118,14 +119,19 @@ def extract_heuristic(results: list) -> list[Provider]:
 # Page fetching (cho AI extraction)
 # ---------------------------------------------------------------------------
 
+
 def fetch_page_text(url: str, timeout: float = 15.0, max_chars: int = MAX_PAGE_CHARS) -> str:
     """
     GET trang, trả về text (đã truncate). Trả '' khi mọi lỗi — caller tự quyết.
     Chỉ chấp nhận content-type text/* và json để tránh tải binary.
     """
     try:
-        resp = httpx.get(url, timeout=timeout, headers={"User-Agent": "free-llm-provider-discovery"},
-                         follow_redirects=True)
+        resp = httpx.get(
+            url,
+            timeout=timeout,
+            headers={"User-Agent": "free-llm-provider-discovery"},
+            follow_redirects=True,
+        )
         resp.raise_for_status()
         content_type = resp.headers.get("content-type", "")
         if "text/" not in content_type and "json" not in content_type:
@@ -136,7 +142,9 @@ def fetch_page_text(url: str, timeout: float = 15.0, max_chars: int = MAX_PAGE_C
         return ""
 
 
-def collect_page_contexts(results: list, max_pages: int = 5, timeout: float = 15.0) -> list[tuple[str, str]]:
+def collect_page_contexts(
+    results: list, max_pages: int = 5, timeout: float = 15.0
+) -> list[tuple[str, str]]:
     """Fetch text của tối đa `max_pages` URL (bỏ social domain). Trả [(url, text)]."""
     contexts: list[tuple[str, str]] = []
     for r in results:
@@ -210,9 +218,8 @@ def extract_with_ai(
         for page_url, text in contexts:
             parts.append(f"### Trang: {page_url}\n{text}")
 
-    user_content = (
-        f"Người dùng đang tìm kiếm với từ khoá: {', '.join(keywords)}\n\n"
-        + "\n".join(parts)
+    user_content = f"Người dùng đang tìm kiếm với từ khoá: {', '.join(keywords)}\n\n" + "\n".join(
+        parts
     )
 
     payload = {

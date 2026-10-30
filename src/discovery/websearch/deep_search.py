@@ -27,7 +27,9 @@ class DeepSearchError(Exception):
     """Lỗi khi chạy deep search."""
 
 
-def dedupe_providers(providers: list[Provider], existing: list[Provider] | None = None) -> list[Provider]:
+def dedupe_providers(
+    providers: list[Provider], existing: list[Provider] | None = None
+) -> list[Provider]:
     """
     Loại provider trùng (theo base_url hoặc name, không phân biệt hoa thường).
 

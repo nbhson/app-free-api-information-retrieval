@@ -36,7 +36,13 @@ from src.logging_config import get_logger, setup_logging
 from src.models import Provider, ProviderStatus
 from src.notifications import detect_status_changes, send_webhook_notification
 from src.storage.history import record_provider_history
-from src.verification.checker import ProgressCallback, verify_all_providers, verify_provider
+from src.verification.checker import (
+    ProgressCallback,
+    SmokeTestError,
+    smoke_test_chat,
+    verify_all_providers,
+    verify_provider,
+)
 
 logger = get_logger("cli")
 
@@ -179,20 +185,23 @@ def list_cmd(fmt, output, verify, show_all_models, tag, no_auth, verbose):
     if no_auth:
         providers = [p for p in providers if not p.auth_required]
 
+    inactive: list[Provider] = []
     if verify:
         logger.info("Đang kiểm tra các endpoint...")
         providers = _verify_with_progress(providers)
         _notify_status_changes(originals, providers)
         inactive = [p for p in providers if p.status == ProviderStatus.INACTIVE]
-        if inactive:
-            logger.warning("Có %d provider không hoạt động", len(inactive))
-            sys.exit(1)
 
-    # Lưu ra file trước (nếu có --output) để mọi định dạng đều nhận được dữ liệu
+    # Lưu ra file (nếu có --output) — phải làm TRƯỚC khi exit: khi có provider
+    # chết (exit code 1 cho CI/hooks), dữ liệu đã verify vẫn được lưu đầy đủ.
     if output:
         provider_list = aggregate_providers(providers)
         path = _save_output(provider_list, output)
         console.print(f"[green]✓[/green] Đã lưu vào [bold]{path}[/bold]")
+
+    if inactive:
+        logger.warning("Có %d provider không hoạt động", len(inactive))
+        sys.exit(1)
 
     if fmt == "json":
         click.echo(
@@ -219,8 +228,44 @@ def list_cmd(fmt, output, verify, show_all_models, tag, no_auth, verbose):
 
 @cli.command()
 @click.option("--provider", "-p", required=True, help="Tên provider cần kiểm tra")
-def check(provider):
-    """Kiểm tra trạng thái của một provider."""
+@click.option(
+    "--api-key",
+    default=None,
+    envvar="PROVIDER_API_KEY",
+    help="API key để verify có auth (hoặc env PROVIDER_API_KEY)",
+)
+@click.option(
+    "--sync-models",
+    is_flag=True,
+    default=False,
+    help="Fetch danh sách model THẬT từ /models (khuyến nghị kèm --api-key)",
+)
+@click.option(
+    "--smoke",
+    "smoke_model",
+    default=None,
+    metavar="MODEL_ID",
+    help="Model ID để test chat completion thật (cần --api-key). VD: --smoke solar-pro4",
+)
+@click.option(
+    "--smoke-prompt",
+    default="Reply with exactly: OK",
+    show_default=True,
+    help="Prompt cho smoke test",
+)
+@click.option(
+    "--timeout",
+    default=10.0,
+    show_default=True,
+    type=float,
+    help="Timeout mỗi HTTP request (giây)",
+)
+def check(provider, api_key, sync_models, smoke_model, smoke_prompt, timeout):
+    """Kiểm tra trạng thái của một provider.
+
+    Mặc định chỉ ping /models không auth. Với --api-key: xác thực thật,
+    --sync-models: lấy model list thật, --smoke MODEL: test inference end-to-end.
+    """
     p = get_provider_by_name(provider)
     if p is None:
         console.print(f"[red]✗[/red] Không tìm thấy provider '{provider}'.")
@@ -236,22 +281,66 @@ def check(provider):
         console.print(f"[dim]Tất cả provider: {', '.join(x.name for x in KNOWN_PROVIDERS)}[/dim]")
         sys.exit(1)
 
-    console.print(f"[dim]Đang kiểm tra {p.name} ({p.base_url})...[/dim]")
+    auth_note = " (có auth)" if api_key else ""
+    console.print(f"[dim]Đang kiểm tra {p.name} ({p.base_url}){auth_note}...[/dim]")
     start = time.perf_counter()
-    p = asyncio.run(verify_provider(p))
+    p = asyncio.run(verify_provider(p, timeout=timeout, api_key=api_key, parse_models=sync_models))
     latency_ms = round((time.perf_counter() - start) * 1000, 2)
 
     # Ghi lịch sử verify vào DB (default data/providers.db, config qua HISTORY_DB_PATH)
     _record_history(p, latency_ms=latency_ms)
 
+    status_line = f"{p.name}: [{_status_style(p.status)}]{p.status.value}[/]"
     if p.status == ProviderStatus.ACTIVE:
-        console.print(f"[green]✓[/green] {p.name}: [green]ACTIVE[/green]")
+        console.print(f"[green]✓[/green] {status_line} [dim]({latency_ms}ms)[/dim]")
+    elif p.status == ProviderStatus.RATE_LIMITED:
+        console.print(f"[yellow]⚠[/yellow] {status_line}")
+    else:
+        console.print(f"[red]✗[/red] {status_line}")
+
+    # Hiển thị model list đã sync (nếu có --sync-models)
+    if sync_models and p.status == ProviderStatus.ACTIVE:
+        live_models = [m.id for m in p.models]
+        if live_models:
+            console.print(f"[green]✓[/green] Sync được [bold]{len(live_models)}[/bold] model:")
+            for mid in live_models:
+                console.print(f"  • {mid}")
+        else:
+            console.print(
+                "[yellow]⚠[/yellow] Endpoint sống nhưng không parse được model list từ /models"
+            )
+
+    # Smoke test chat completion thật (nếu có --smoke)
+    smoke_exit = 0
+    if smoke_model:
+        if not api_key:
+            console.print("[red]✗[/red] --smoke cần --api-key (hoặc env PROVIDER_API_KEY)")
+            sys.exit(1)
+        console.print(f"[dim]Smoke test {smoke_model} (chat completion thật)...[/dim]")
+        try:
+            result = asyncio.run(
+                smoke_test_chat(p, smoke_model, api_key=api_key, prompt=smoke_prompt)
+            )
+        except SmokeTestError as e:
+            console.print(f"[red]✗ Smoke test thất bại:[/red]\n  {e}")
+            smoke_exit = 1
+        else:
+            usage = result.get("usage") or {}
+            console.print(
+                f"[green]✓[/green] Smoke test OK: "
+                f"[bold]{result.get('content')}[/bold] "
+                f"[dim]({result.get('latency_ms')}ms, "
+                f"{usage.get('total_tokens', '?')} tokens, "
+                f"finish={result.get('finish_reason')})[/dim]"
+            )
+
+    if smoke_exit:
+        sys.exit(1)
+    if p.status == ProviderStatus.ACTIVE:
         sys.exit(0)
     elif p.status == ProviderStatus.RATE_LIMITED:
-        console.print(f"[yellow]⚠[/yellow] {p.name}: [yellow]RATE_LIMITED[/yellow]")
         sys.exit(2)
     else:
-        console.print(f"[red]✗[/red] {p.name}: [{_status_style(p.status)}]{p.status.value}[/]")
         sys.exit(1)
 
 
@@ -369,7 +458,13 @@ def discover_live_cmd(output, show_all_models):
     default=None,
     help=f"Nguồn search, comma-separated ({', '.join(AVAILABLE_SOURCES)}). Mặc định: tất cả",
 )
-@click.option("--max-results", type=int, default=10, show_default=True, help="Số kết quả mỗi (nguồn × keyword)")
+@click.option(
+    "--max-results",
+    type=int,
+    default=10,
+    show_default=True,
+    help="Số kết quả mỗi (nguồn × keyword)",
+)
 @click.option(
     "--mode",
     type=click.Choice(["heuristic", "ai"]),
@@ -377,10 +472,16 @@ def discover_live_cmd(output, show_all_models):
     show_default=True,
     help="Trích xuất: heuristic (regex, không cần key) hoặc ai (LLM đọc nội dung trang)",
 )
-@click.option("--pages", default=5, show_default=True, type=int, help="Số trang fetch tối đa cho AI mode")
+@click.option(
+    "--pages", default=5, show_default=True, type=int, help="Số trang fetch tối đa cho AI mode"
+)
 @click.option("--output", "-o", type=str, default=None, help="Lưu kết quả ra file JSON")
-@click.option("--verify", is_flag=True, default=False, help="Kiểm tra trạng thái các provider tìm thấy")
-@click.option("--timeout", default=15.0, show_default=True, type=float, help="Timeout mỗi HTTP request (giây)")
+@click.option(
+    "--verify", is_flag=True, default=False, help="Kiểm tra trạng thái các provider tìm thấy"
+)
+@click.option(
+    "--timeout", default=15.0, show_default=True, type=float, help="Timeout mỗi HTTP request (giây)"
+)
 def discover_web(keywords, sources, max_results, mode, pages, verify, timeout, output):
     """Deep Web Search — quét Reddit / Hacker News / DuckDuckGo / GitHub với keyword tùy ý.
 
@@ -412,11 +513,17 @@ def discover_web(keywords, sources, max_results, mode, pages, verify, timeout, o
         sys.exit(1)
 
     if not found:
-        console.print("[yellow]⚠ Không tìm thấy provider mới nào (mọi kết quả đều trùng registry hoặc rỗng).[/yellow]")
-        console.print("[dim]Gợi ý: thêm keyword khác: discover-web -k 'free llm api 2026, cheap inference api'[/dim]")
+        console.print(
+            "[yellow]⚠ Không tìm thấy provider mới nào (mọi kết quả đều trùng registry hoặc rỗng).[/yellow]"
+        )
+        console.print(
+            "[dim]Gợi ý: thêm keyword khác: discover-web -k 'free llm api 2026, cheap inference api'[/dim]"
+        )
         return
 
-    console.print(f"\n[green]✓[/green] Deep search tìm thấy [bold]{len(found)}[/bold] provider mới:\n")
+    console.print(
+        f"\n[green]✓[/green] Deep search tìm thấy [bold]{len(found)}[/bold] provider mới:\n"
+    )
     _print_provider_table(found, show_all_models=True)
 
     if verify and found:

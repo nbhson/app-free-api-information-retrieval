@@ -38,7 +38,9 @@ def runner() -> "object":
     return CliRunner()
 
 
-def _result(url: str, title: str = "Title", snippet: str = "", source: str = "reddit") -> SearchResult:
+def _result(
+    url: str, title: str = "Title", snippet: str = "", source: str = "reddit"
+) -> SearchResult:
     return SearchResult(title=title, url=url, snippet=snippet, source=source)
 
 
@@ -75,6 +77,7 @@ def _fake_html_resp(html):
 # ---------------------------------------------------------------------------
 # keywords
 # ---------------------------------------------------------------------------
+
 
 class TestKeywords:
     def test_parse_none_uses_defaults(self):
@@ -116,6 +119,7 @@ class TestKeywords:
 # ---------------------------------------------------------------------------
 # backends — Reddit / Hacker News / DuckDuckGo / GitHub
 # ---------------------------------------------------------------------------
+
 
 def _fake_json_response(payload):
     class FakeResponse:
@@ -298,6 +302,7 @@ class TestRunSearch:
 # deep_search — dedupe + orchestration
 # ---------------------------------------------------------------------------
 
+
 class TestDedupeProviders:
     def test_removes_duplicate_base_url(self):
         p1 = Provider(name="A", base_url="https://api.x.com/v1")
@@ -395,7 +400,9 @@ class TestRunDeepSearch:
     def test_ai_mode_success_combines_with_heuristic(self, monkeypatch):
         from src.config import AIConfig
 
-        ai_p = Provider(name="AIFound", base_url="https://api.aifound.ai/v1", tags=["web-discovered"])
+        ai_p = Provider(
+            name="AIFound", base_url="https://api.aifound.ai/v1", tags=["web-discovered"]
+        )
         heur_p = Provider(name="HeurFound", base_url="https://api.heur.ai/v1")
         import src.discovery.websearch.deep_search as ds
 
@@ -413,6 +420,7 @@ class TestRunDeepSearch:
 # ---------------------------------------------------------------------------
 # extractor — heuristic
 # ---------------------------------------------------------------------------
+
 
 class TestExtractorHelpers:
     def test_domain_of(self):
@@ -505,6 +513,7 @@ class TestIsBlocked:
 # extractor — AI mode
 # ---------------------------------------------------------------------------
 
+
 class TestExtractWithAI:
     def _make_config(self):
         from src.config import AIConfig
@@ -544,7 +553,9 @@ class TestExtractWithAI:
             return self._ai_response(raw)
 
         monkeypatch.setattr("httpx.post", fake_post)
-        providers = extract_with_ai([], [_result("https://blog.com/x")], ["kw"], self._make_config())
+        providers = extract_with_ai(
+            [], [_result("https://blog.com/x")], ["kw"], self._make_config()
+        )
         assert len(providers) == 1
         assert providers[0].name == "NewAI"
         assert "web-discovered" in providers[0].tags
@@ -615,6 +626,7 @@ class TestCollectPageContexts:
 # backends — retry + http_get edge cases
 # ---------------------------------------------------------------------------
 
+
 class TestHttpGetRetry:
     def test_retries_on_503_then_succeeds(self, monkeypatch):
         from src.discovery.websearch.backends import _http_get
@@ -667,6 +679,7 @@ class TestFetchPageTextJson:
 # ---------------------------------------------------------------------------
 # CLI discover-web
 # ---------------------------------------------------------------------------
+
 
 class TestDiscoverWebCLI:
     def test_requires_no_key_and_reports_empty(self, runner, monkeypatch):
@@ -744,6 +757,7 @@ class TestDiscoverWebCLI:
 # ---------------------------------------------------------------------------
 # backends — shared keys (Crown AI + LMSpeed)
 # ---------------------------------------------------------------------------
+
 
 class TestSharedKeysSource:
     def test_crown_status_parses_alive_models(self, monkeypatch):

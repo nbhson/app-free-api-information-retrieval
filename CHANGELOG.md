@@ -4,6 +4,51 @@ Tất cả thay đổi quan trọng của project được ghi nhận trong file
 Format dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning theo [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] — 2026-10-30
+
+### Added
+- **Deep verification cho provider có API key**:
+  - `check --api-key KEY` (hoặc env `PROVIDER_API_KEY`): verify endpoint với
+    Authorization header thật — phân biệt được "endpoint sống" và "key hợp lệ".
+  - `check --sync-models`: fetch danh sách model THẬT từ `/models` (chuẩn OpenAI,
+    chấp nhận các biến thể `data` / `models` / list string / key `model`) thay cho
+    danh sách model tĩnh trong registry. Item lỗi bị bỏ qua, không làm chết cả list.
+  - `check --smoke MODEL_ID`: chat completion thật end-to-end với max_tokens nhỏ —
+    chứng minh key + model + inference hoạt động, báo latency/tokens/finish_reason.
+    Lỗi (HTTP, timeout, response sai chuẩn, content rỗng) → `SmokeTestError`, exit 1.
+- **Provider mới: Upstage (Solar)** — provider AI Hàn Quốc, OpenAI-compatible,
+  base URL `https://api.upstage.ai/v1`. Đã test thật: 9 model live, smoke test
+  `solar-pro4` trả kết quả đúng. Registry hiện 23 provider.
+
+### Fixed
+- **CLI `list --verify --output` mất file kết quả**: khi có provider chết, lệnh
+  `sys.exit(1)` chạy TRƯỚC khi lưu `--output` → CI/hooks mất toàn bộ dữ liệu đã
+  verify. Giờ output luôn được lưu trước khi exit với code 1.
+- **AI agent retry 429/5xx không có backoff**: `discover_with_ai` retry ngay lập
+  tức, đánh nhau với server đang rate limit. Thêm exponential backoff (1s/2s)
+  giống convention của `checker.py` / `live.py`.
+- **CSV export mất provider không có model free**: comment chủ đích là "vẫn xuất
+  1 row để không mất dữ liệu" nhưng code không xuất row nào → provider biến mất
+  khỏi file CSV (JSON thì vẫn giữ). Giờ mỗi provider luôn có ít nhất 1 row.
+- **SQLite connection không được đóng tường minh**: `with conn:` của sqlite3 chỉ
+  commit/rollback transaction, KHÔNG close connection — phụ thuộc refcount của
+  CPython để dọn dẹp (leak FD trên PyPy/refactor sau này). Chuyển sang
+  `contextlib.closing()` cho mọi thao tác DB.
+- **Dead code trong `run_search`**: điều kiện `scoped = keyword if "site:" ...`
+  trả về cùng 1 giá trị ở cả 2 nhánh — xoá dòng no-op.
+
+### Changed (Enterprise)
+- **API security hardening**:
+  - So sánh API key timing-safe (`secrets.compare_digest`) — chống timing attack.
+  - Security headers trên mọi response: `X-Content-Type-Options`, `X-Frame-Options`,
+    `Referrer-Policy`, `Cache-Control`.
+  - Unhandled exception handler: log đầy đủ phía server, trả 500 JSON gọn phía
+    client — không leak stack trace ra ngoài.
+  - GZip middleware (minimum 1KB) — payload danh sách provider nén ~80%.
+- **Docker**: `PYTHONDONTWRITEBYTECODE=1` + `PYTHONUNBUFFERED=1` (chuẩn container);
+  bỏ copy `requirements-dev.txt` không dùng ở build stage; service `api` mount
+  `./data` để history DB persist qua restart.
+
 ## [1.5.0] — 2026-10-28
 
 ### Added

@@ -111,3 +111,30 @@ class TestRecordProvider:
         monkeypatch.setattr(h.HistoryStore, "record_provider", boom)
         # Không raise
         record_provider_history(sample_provider)
+
+
+class TestConnectionClosed:
+    def test_connection_closed_after_each_operation(self, store, monkeypatch):
+        """Regression: connection phải được đóng sau mỗi thao tác (không phụ thuộc GC)."""
+        from src.storage import history as history_module
+
+        created = []
+        orig_connect = history_module.sqlite3.connect
+
+        def tracking_connect(*args, **kwargs):
+            conn = orig_connect(*args, **kwargs)
+            created.append(conn)
+            return conn
+
+        monkeypatch.setattr(history_module.sqlite3, "connect", tracking_connect)
+
+        store.record("P", "active")
+        store.get_history("P")
+        store.get_uptime("P")
+        store.count()
+
+        assert len(created) == 4
+        for conn in created:
+            # Connection đã close → mọi query raise ProgrammingError
+            with pytest.raises(sqlite3.ProgrammingError):
+                conn.execute("SELECT 1")

@@ -19,11 +19,14 @@ CORS: env CORS_ORIGINS (comma-separated) — rỗng = không bật CORS middlewa
 
 from __future__ import annotations
 
+import logging
 import math
+import secrets
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from src.__version__ import __version__
@@ -32,14 +35,27 @@ from src.discovery import KNOWN_PROVIDERS, get_provider_by_name, get_providers_b
 from src.models import ProviderStatus
 from src.storage.history import HistoryStore
 
+logger = logging.getLogger("api")
+
 # Các path public — không cần API key kể cả khi API_KEYS được set
 _PUBLIC_PATHS = {"/", "/docs", "/redoc", "/openapi.json", "/api/v1/health", "/api/v1/version"}
+
+# Security headers — gắn vào mọi response (enterprise hardening)
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": "no-store",
+}
 
 app = FastAPI(
     title="Free LLM Provider Discovery API",
     description="REST API để tra cứu danh sách LLM API provider miễn phí",
     version=__version__,
 )
+
+# Nén response lớn (payload providers có thể vài trăm KB) — giảm bandwidth
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
 @app.middleware("http")
@@ -49,16 +65,39 @@ async def api_key_auth_middleware(request: Request, call_next: Any) -> Any:
 
     - API_KEYS="" (default) → public như cũ.
     - API_KEYS="k1,k2" → mọi path trừ _PUBLIC_PATHS yêu cầu header X-API-Key.
+    So sánh timing-safe (secrets.compare_digest) để chống timing attack.
     """
     keys = get_api_config().get_api_keys()
     if keys and request.url.path not in _PUBLIC_PATHS:
         provided = request.headers.get("X-API-Key", "")
-        if provided not in keys:
+        if not any(secrets.compare_digest(provided, key) for key in keys):
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Thiếu hoặc sai API key. Truyền header 'X-API-Key'."},
             )
     return await call_next(request)
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next: Any) -> Any:
+    """Gắn security headers vào mọi response (kể cả 401/404/500)."""
+    response = await call_next(request)
+    for header, value in _SECURITY_HEADERS.items():
+        response.headers.setdefault(header, value)
+    return response
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """
+    Safety net cho mọi exception không được xử lý: log đầy đủ phía server,
+    trả 500 JSON gọn phía client — không leak stack trace / internals.
+    """
+    logger.exception("Unhandled error khi xử lý %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Lỗi máy chủ nội bộ. Vui lòng thử lại sau."},
+    )
 
 
 # CORS chỉ bật khi env CORS_ORIGINS được set (comma-separated origins)
@@ -110,9 +149,7 @@ def list_providers(
     tag: str | None = Query(None, description="Lọc theo tag (vd: free-tier)"),
     no_auth: bool = Query(False, description="Chỉ provider không cần API key"),
     free_only: bool = Query(True, description="Chỉ trả về models free"),
-    limit: int = Query(
-        100, ge=1, le=100, description="Số provider tối đa mỗi trang (max 100)"
-    ),
+    limit: int = Query(100, ge=1, le=100, description="Số provider tối đa mỗi trang (max 100)"),
     offset: int = Query(0, ge=0, description="Số provider bỏ qua (phân trang)"),
 ) -> dict[str, Any]:
     """Danh sách provider, hỗ trợ lọc theo tag / auth / free + pagination."""

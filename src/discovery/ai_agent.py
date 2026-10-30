@@ -4,6 +4,7 @@ AI Discovery Agent - Dùng LLM để tìm kiếm provider LLM miễn phí mới
 
 import json
 import re
+import time
 
 import httpx
 
@@ -12,6 +13,9 @@ from src.logging_config import get_logger
 from src.models import APIStyle, AuthType, Model, Provider, ProviderStatus
 
 logger = get_logger(__name__)
+
+# Backoff giữa các lần retry 429/5xx — cùng convention với checker.py / live.py
+RETRY_BACKOFF_BASE = 1.0  # giây — backoff = base * 2^attempt
 
 SYSTEM_PROMPT = """Bạn là một chuyên gia nghiên cứu về các LLM API providers.
 Nhiệm vụ: tìm kiếm và liệt kê các nhà cung cấp API LLM MIỄN PHÍ (free tier) hiện có.
@@ -169,8 +173,10 @@ def discover_with_ai(config: AIConfig | None = None, max_retries: int = 2) -> li
                 )
                 if attempt < max_retries:
                     logger.warning(
-                        "Lần %d lỗi: %s. Thử lại...", attempt + 1, last_error
+                        "Lần %d lỗi: %s. Thử lại sau backoff...", attempt + 1, last_error
                     )
+                    # Backoff trước khi retry — không đánh nhau với server đang rate limit
+                    time.sleep(RETRY_BACKOFF_BASE * (2**attempt))
                     continue
                 raise AIDiscoveryError(last_error)
             resp.raise_for_status()
@@ -194,6 +200,7 @@ def discover_with_ai(config: AIConfig | None = None, max_retries: int = 2) -> li
             last_error = str(e)
 
         if attempt < max_retries:
-            logger.warning("Lần %d lỗi: %s. Thử lại...", attempt + 1, last_error)
+            logger.warning("Lần %d lỗi: %s. Thử lại sau backoff...", attempt + 1, last_error)
+            time.sleep(RETRY_BACKOFF_BASE * (2**attempt))
 
     raise AIDiscoveryError(last_error or "Không rõ lỗi")
