@@ -36,7 +36,7 @@ class SearchResult:
     title: str
     url: str
     snippet: str = ""
-    source: str = ""  # reddit | hackernews | duckduckgo | github
+    source: str = ""  # reddit | hackernews | duckduckgo | google | github | shared_keys
     extra: dict = field(default_factory=dict)
 
 
@@ -253,12 +253,83 @@ def _domain_of_url(url: str) -> str:
 
 
 CROWN_STATUS_URL = "https://crown.ai.id/api/status"
+CROWN_BANSOS_URL = "https://crown.ai.id/bansos"
 
 LMSPEED_SHARED_KEYS_URL = "https://lmspeed.net/free-api-keys"
 # Provider link có thể là relative (/provider/x) hoặc absolute (https://lmspeed.net/provider/x)
 _LMSPEED_PROVIDER_RE = re.compile(r'href="(?:https://lmspeed\.net)?(/provider/[a-zA-Z0-9._-]+)"')
 # RSC payload nhúng baseUrl thật của shared key: baseUrl:"https://api.xxx/v1"
 _LMSPEED_BASE_URL_RE = re.compile(r'baseUrl:"(https://[^"]+)"')
+
+# Trang cộng đồng Indonesia chia sẻ key free (vd: ai.masb.web.id) —
+# scrape generic: tìm mọi URL API OpenAI-compatible (/v1) trong HTML
+_MASB_URL = "https://ai.masb.web.id/"
+# Endpoint API xuất hiện trong HTML: href hoặc text thuần
+_API_URL_ANY_RE = re.compile(
+    r"https?://(?P<host>[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?)"
+    r"(?::\d{2,5})?"
+    r"/v1(?:/[a-zA-Z0-9._/-]*)?"
+)
+
+
+def fetch_masb_shared_keys(timeout: float = DEFAULT_TIMEOUT) -> list[SearchResult]:
+    """
+    Scrape ai.masb.web.id — trang cộng đồng Indonesia chia sẻ key/API LLM free.
+    Trích xuất mọi endpoint /v1 xuất hiện trong HTML (href, text, JS payload).
+    """
+    resp = httpx.get(_MASB_URL, timeout=timeout, headers=BROWSER_HEADERS, follow_redirects=True)
+    resp.raise_for_status()
+    html = resp.text
+
+    results: list[SearchResult] = []
+    seen: set[str] = set()
+    for match in _API_URL_ANY_RE.finditer(html):
+        api_url = match.group(0).rstrip("/")
+        host = _domain_of_url(api_url)
+        if not host or api_url.lower() in seen:
+            continue
+        # Bỏ chính domain masb (không phải provider)
+        if host == "ai.masb.web.id" or host.endswith(".masb.web.id"):
+            continue
+        seen.add(api_url.lower())
+        results.append(
+            SearchResult(
+                title=f"{host} (shared key trên masb.web.id)",
+                url=api_url,
+                snippet=f"Community-shared free API endpoint từ ai.masb.web.id — base URL {api_url}",
+                source="shared_keys",
+            )
+        )
+    return results
+
+
+def fetch_crown_bansos(timeout: float = DEFAULT_TIMEOUT) -> list[SearchResult]:
+    """
+    Fetch trang crown.ai.id/bansos — trang bansos (bantuan sosial = trợ cấp)
+    của Crown AI: nơi phát key free cho cộng đồng. Trích xuất endpoint API
+    và hướng dẫn lấy key để đưa vào context cho AI extraction.
+    """
+    resp = httpx.get(CROWN_BANSOS_URL, timeout=timeout, headers=BROWSER_HEADERS, follow_redirects=True)
+    resp.raise_for_status()
+    html = resp.text
+
+    results: list[SearchResult] = []
+    seen: set[str] = set()
+    for match in _API_URL_ANY_RE.finditer(html):
+        api_url = match.group(0).rstrip("/")
+        host = _domain_of_url(api_url)
+        if not host or api_url.lower() in seen:
+            continue
+        seen.add(api_url.lower())
+        results.append(
+            SearchResult(
+                title=f"{host} (free key từ crown.ai.id/bansos)",
+                url=api_url,
+                snippet=f"Free community API key phát tại https://crown.ai.id/bansos — base URL {api_url}",
+                source="shared_keys",
+            )
+        )
+    return results
 
 
 def fetch_lmspeed_shared_keys(timeout: float = DEFAULT_TIMEOUT) -> list[SearchResult]:
@@ -353,7 +424,212 @@ def search_shared_keys(
     except Exception as e:  # noqa: BLE001
         console.print(f"[yellow]⚠ LMSpeed shared keys lỗi, bỏ qua: {e}[/yellow]")
 
+    # Crown bansos — trang phát key free của cộng đồng Indonesia
+    try:
+        results.extend(fetch_crown_bansos(timeout))
+    except Exception as e:  # noqa: BLE001
+        console.print(f"[yellow]⚠ Crown bansos lỗi, bỏ qua: {e}[/yellow]")
+
+    # masb.web.id — trang cộng đồng Indonesia chia sẻ key/API free
+    try:
+        results.extend(fetch_masb_shared_keys(timeout))
+    except Exception as e:  # noqa: BLE001
+        console.print(f"[yellow]⚠ masb.web.id lỗi, bỏ qua: {e}[/yellow]")
+
+    # Nguồn shared trả kết quả trực tiếp (không qua search) — không cắt
+    # theo max_results của search (tránh mất provider khi thêm nguồn mới)
+    return results[: max(max_results, 50)]
+
+
+# ---------------------------------------------------------------------------
+# Social (X/Twitter, Threads, Instagram) — site-scoped search qua Google/DuckDuckGo
+# ---------------------------------------------------------------------------
+
+# Nền tảng social + site: scope cho Google/DDG. Lưu ý: X/Instagram/Threads
+# KHÔNG có search API public miễn phí — cách đáng tin nhất là search qua
+# Google index với site: scope (CSE khi có key, DDG html khi không có).
+SOCIAL_SCOPES = {
+    "x": "site:x.com OR site:twitter.com",
+    "threads": "site:threads.net",
+    "instagram": "site:instagram.com",
+}
+
+
+def search_social(
+    query: str, max_results: int = DEFAULT_MAX_RESULTS, timeout: float = DEFAULT_TIMEOUT
+) -> list[SearchResult]:
+    """
+    Nguồn 'social' — tìm bài đăng về free LLM API trên X/Twitter, Threads,
+    Instagram thông qua Google index (site: scope) + DuckDuckGo fallback.
+
+    - Có GOOGLE_API_KEY + GOOGLE_CSE_ID → Google Custom Search (đáng tin nhất)
+    - Không → DuckDuckGo html (hỗ trợ site: operator, không cần key)
+    - 1 nền tảng lỗi → bỏ qua, các nền tảng khác vẫn chạy (graceful)
+    """
+    from src.config import get_google_config
+
+    gcfg = get_google_config()
+    use_cse = gcfg.is_configured()
+    results: list[SearchResult] = []
+    seen: set[str] = set()
+
+    for platform, scope in SOCIAL_SCOPES.items():
+        scoped_query = f"{query} {scope}"
+        platform_results: list[SearchResult] = []
+        if use_cse:
+            platform_results = _safe_backend(
+                f"google-cse/{platform}", _google_cse_search, scoped_query, max_results, timeout
+            )
+        if not platform_results:
+            platform_results = _safe_backend(
+                f"duckduckgo/{platform}",
+                _ddg_search_raw,
+                scoped_query,
+                max_results,
+                timeout,
+            )
+        for r in platform_results:
+            if r.url.lower() in seen:
+                continue
+            seen.add(r.url.lower())
+            r.source = "social"
+            r.extra.setdefault("platform", platform)
+            results.append(r)
     return results[:max_results]
+
+
+def _google_cse_search(
+    query: str, max_results: int, timeout: float
+) -> list[SearchResult]:
+    """Google Custom Search JSON API — trả list[SearchResult] (raise khi lỗi)."""
+    from src.config import get_google_config
+
+    gcfg = get_google_config()
+    url = (
+        f"{GOOGLE_CSE_URL}"
+        f"?key={gcfg.api_key}&cx={gcfg.cse_id}&q={quote_plus(query)}&num={min(max_results, 10)}"
+    )
+    resp = _http_get(url, timeout)
+    data = resp.json()
+    results: list[SearchResult] = []
+    for item in data.get("items", []):
+        title = item.get("title") or ""
+        link = item.get("link") or ""
+        if not title or not link:
+            continue
+        results.append(
+            SearchResult(
+                title=title,
+                url=link,
+                snippet=str(item.get("snippet") or "")[:500],
+                source="social",
+                extra={"display_link": item.get("displayLink", "")},
+            )
+        )
+    return results[:max_results]
+
+
+def _ddg_search_raw(
+    query: str, max_results: int, timeout: float
+) -> list[SearchResult]:
+    """DuckDuckGo html search raw — dùng cho site: scoped queries (social)."""
+    return search_duckduckgo(query, max_results, timeout)
+
+
+# ---------------------------------------------------------------------------
+# Google — Custom Search JSON API (nếu có key) hoặc Google News RSS (public)
+# ---------------------------------------------------------------------------
+
+GOOGLE_CSE_URL = "https://www.googleapis.com/customsearch/v1/search"
+GOOGLE_NEWS_RSS_URL = "https://news.google.com/rss/search"
+
+
+def _parse_google_news_rss(xml_text: str, max_results: int) -> list[SearchResult]:
+    """Parse Google News RSS XML → list[SearchResult] (không thêm dependency)."""
+    import xml.etree.ElementTree as ET
+
+    results: list[SearchResult] = []
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as e:
+        raise RuntimeError(f"Google News RSS XML lỗi: {e}") from e
+    # RSS: <rss><channel><item>...
+    for item in root.findall("./channel/item"):
+        title = (item.findtext("title") or "").strip()
+        link = (item.findtext("link") or "").strip()
+        if not title or not link:
+            continue
+        pub_date = (item.findtext("pubDate") or "").strip()
+        source_el = item.find("source")
+        source_name = (source_el.text or "").strip() if source_el is not None else ""
+        snippet = (item.findtext("description") or "").strip()
+        # Bỏ HTML tag trong description (Google News nhúng <a>,...)
+        snippet = _HTML_TAG_RE.sub("", snippet)[:500]
+        results.append(
+            SearchResult(
+                title=_clean_html(title),
+                url=link,
+                snippet=f"{snippet} ({source_name}) {pub_date}".strip()[:500],
+                source="google",
+                extra={"news_source": source_name},
+            )
+        )
+        if len(results) >= max_results:
+            break
+    return results
+
+
+def search_google(
+    query: str, max_results: int = DEFAULT_MAX_RESULTS, timeout: float = DEFAULT_TIMEOUT
+) -> list[SearchResult]:
+    """
+    Search Google cho deep web search — 2 tầng theo độ tin cậy:
+
+    1. **Google Custom Search JSON API** (khi .env có GOOGLE_API_KEY +
+       GOOGLE_CSE_ID): web index THẬT của Google, kết quả đáng tin nhất,
+       có snippet — đây là tầng ưu tiên ("bất cứ giá nào").
+    2. **Google News RSS** (fallback, không cần key): index tin tức của
+       Google, public, ổn định — dùng khi chưa cấu hình Custom Search.
+
+    Lỗi 1 tầng → tự chuyển tầng dưới, không crash (graceful).
+    """
+    from src.config import get_google_config
+
+    gcfg = get_google_config()
+    if gcfg.is_configured():
+        try:
+            url = (
+                f"{GOOGLE_CSE_URL}"
+                f"?key={gcfg.api_key}&cx={gcfg.cse_id}"
+                f"&q={quote_plus(query)}&num={min(max_results, 10)}"
+            )
+            resp = _http_get(url, timeout)
+            data = resp.json()
+            results: list[SearchResult] = []
+            for item in data.get("items", []):
+                title = item.get("title") or ""
+                link = item.get("link") or ""
+                if not title or not link:
+                    continue
+                results.append(
+                    SearchResult(
+                        title=title,
+                        url=link,
+                        snippet=str(item.get("snippet") or "")[:500],
+                        source="google",
+                        extra={"display_link": item.get("displayLink", "")},
+                    )
+                )
+            if results:
+                return results[:max_results]
+            console.print("[yellow]⚠ Google CSE trả về rỗng → fallback Google News RSS[/yellow]")
+        except Exception as e:  # noqa: BLE001 — fallback RSS thay vì crash
+            console.print(f"[yellow]⚠ Google Custom Search lỗi ({e}) → fallback News RSS[/yellow]")
+
+    # Fallback: Google News RSS (public, không cần key)
+    url = f"{GOOGLE_NEWS_RSS_URL}?q={quote_plus(query)}&hl=en-US&gl=US&ceid=US:en"
+    resp = _http_get(url, timeout)
+    return _parse_google_news_rss(resp.text, max_results)
 
 
 # ---------------------------------------------------------------------------
@@ -364,6 +640,8 @@ SEARCH_BACKENDS = {
     "reddit": search_reddit,
     "hackernews": search_hackernews,
     "duckduckgo": search_duckduckgo,
+    "google": search_google,
+    "social": search_social,
     "github": search_github,
     "shared": search_shared_keys,
 }
@@ -379,7 +657,7 @@ def parse_sources(raw: str | None) -> list[str]:
     for part in raw.split(","):
         name = part.strip().lower()
         # alias thân thiện
-        aliases = {"hn": "hackernews", "ddg": "duckduckgo", "gh": "github"}
+        aliases = {"hn": "hackernews", "ddg": "duckduckgo", "gh": "github", "g": "google"}
         name = aliases.get(name, name)
         if name in SEARCH_BACKENDS and name not in valid:
             valid.append(name)

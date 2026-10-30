@@ -261,6 +261,9 @@ class TestParseSources:
     def test_aliases(self):
         assert parse_sources("hn,ddg,gh") == ["hackernews", "duckduckgo", "github"]
 
+    def test_google_alias(self):
+        assert parse_sources("g") == ["google"]
+
     def test_invalid_names_skipped(self):
         assert parse_sources("reddit,facebook") == ["reddit"]
 
@@ -678,6 +681,89 @@ class TestFetchPageTextJson:
         assert fetch_page_text("https://api.com/data", timeout=1.0) == '{"ok": true}'
 
 
+class TestCollectPageContextsDeep:
+    def test_crawls_second_level_links(self, monkeypatch):
+        """Deep crawl: trang cấp 1 chứa link con → link con cũng được fetch."""
+        from src.discovery.websearch.extractor import collect_page_contexts_deep
+
+        pages = {
+            "https://community.id/post": (
+                '<html>Free keys at <a href="https://community.id/bansos-page">bansos</a></html>'
+            ),
+            "https://community.id/bansos-page": "<html>key list here api https://api.x.ai/v1</html>",
+        }
+
+        def fake_fetch(url, timeout=15.0, max_chars=6000):
+            return pages.get(url, "")
+
+        monkeypatch.setattr(
+            "src.discovery.websearch.extractor.fetch_page_text", fake_fetch
+        )
+        results = [_result("https://community.id/post")]
+        contexts = collect_page_contexts_deep(results, max_pages=5, timeout=1.0)
+        urls = [u for u, _ in contexts]
+        assert "https://community.id/post" in urls
+        assert "https://community.id/bansos-page" in urls  # cấp 2 được follow
+
+    def test_respects_max_pages_budget(self, monkeypatch):
+        """Tổng số trang fetch không vượt max_pages dù link con nhiều."""
+        from src.discovery.websearch.extractor import collect_page_contexts_deep
+
+        pages = {}
+        for i in range(10):
+            pages[f"https://site.com/p{i}"] = (
+                f'<html><a href="https://site.com/p{i + 1}">free api next</a></html>'
+            )
+
+        monkeypatch.setattr(
+            "src.discovery.websearch.extractor.fetch_page_text",
+            lambda url, timeout=15.0, max_chars=6000: pages.get(url, ""),
+        )
+        results = [_result("https://site.com/p0")]
+        contexts = collect_page_contexts_deep(results, max_pages=3, timeout=1.0)
+        assert len(contexts) <= 3
+
+    def test_blocked_links_not_followed(self, monkeypatch):
+        """Link con trỏ tới social/blocked domain không bị follow."""
+        from src.discovery.websearch.extractor import collect_page_contexts_deep
+
+        fetched = []
+        pages = {
+            "https://blog.com/post": (
+                '<html><a href="https://www.reddit.com/r/x">reddit</a>'
+                '<a href="https://blog.com/real">free api</a></html>'
+            ),
+            "https://blog.com/real": "<html>content</html>",
+        }
+
+        def fake_fetch(url, timeout=15.0, max_chars=6000):
+            fetched.append(url)
+            return pages.get(url, "")
+
+        monkeypatch.setattr(
+            "src.discovery.websearch.extractor.fetch_page_text", fake_fetch
+        )
+        contexts = collect_page_contexts_deep([_result("https://blog.com/post")], max_pages=5)
+        assert not any("reddit.com" in u for u in fetched)
+        assert "https://blog.com/real" in [u for u, _ in contexts]
+
+    def test_external_link_without_hint_not_followed(self, monkeypatch):
+        """Link ngoài domain, không có hint free/api → không follow (chống lan truyền)."""
+        from src.discovery.websearch.extractor import collect_page_contexts_deep
+
+        pages = {
+            "https://blog.com/post": (
+                '<html><a href="https://random-site.com/page">click here</a></html>'
+            )
+        }
+        monkeypatch.setattr(
+            "src.discovery.websearch.extractor.fetch_page_text",
+            lambda url, timeout=15.0, max_chars=6000: pages.get(url, ""),
+        )
+        contexts = collect_page_contexts_deep([_result("https://blog.com/post")], max_pages=5)
+        assert [u for u, _ in contexts] == ["https://blog.com/post"]  # chỉ trang gốc
+
+
 # ---------------------------------------------------------------------------
 # CLI discover-web
 # ---------------------------------------------------------------------------
@@ -855,6 +941,145 @@ class TestDiscoverWebCLI:
         assert result.exit_code == 0
         assert "BrandNew" in result.output
 
+    def test_default_mode_is_ai(self, runner, monkeypatch, tmp_path):
+        """Không truyền --mode → mặc định dùng 'ai' (AI tham gia giai đoạn tìm)."""
+        import src.cli.main as m
+
+        captured = {}
+
+        def fake_run(**kw):
+            captured.update(kw)
+            return []
+
+        monkeypatch.setattr(m, "run_deep_search", fake_run)
+        result = runner.invoke(m.cli, ["discover-web", *self._state_opt(tmp_path)])
+        assert result.exit_code == 0
+        assert captured["mode"] == "ai"
+
+    def test_no_dedup_disables_url_exclusion(self, runner, monkeypatch, tmp_path):
+        """--no-dedup → exclude_urls=None: URL đã xem được quét lại."""
+        import src.cli.main as m
+
+        state_file = tmp_path / "scan_state.json"
+        # Lần 1: đánh dấu 1 URL đã xem
+        seen = {"https://example.com/post-1"}
+
+        def fake_run_1(**kw):
+            assert kw["exclude_urls"] == seen or kw["exclude_urls"] == set()
+            if kw.get("on_results"):
+                kw["on_results"](
+                    [SearchResult(title="t", url="https://example.com/post-1", source="reddit")]
+                )
+            return []
+
+        monkeypatch.setattr(m, "run_deep_search", fake_run_1)
+        runner.invoke(m.cli, ["discover-web", "--state", str(state_file)])
+
+        # Lần 2 với --no-dedup: exclude_urls phải là None (không loại URL cũ)
+        captured = {}
+
+        def fake_run_2(**kw):
+            captured.update(kw)
+            return []
+
+        monkeypatch.setattr(m, "run_deep_search", fake_run_2)
+        result = runner.invoke(
+            m.cli, ["discover-web", "--no-dedup", "--state", str(state_file)]
+        )
+        assert result.exit_code == 0
+        assert captured["exclude_urls"] is None
+
+    def test_rerun_same_keyword_updates_existing_provider(self, runner, monkeypatch, tmp_path):
+        """Chạy lại cùng keyword: provider tìm lại phải được CẬP NHẬT info, không rỗng."""
+        import src.cli.main as m
+
+        state_file = tmp_path / "scan_state.json"
+        # Lần 1: tìm thấy provider chưa có model
+        run1 = [Provider(name="Fresh", base_url="https://api.fresh.ai/v1", models=[])]
+        monkeypatch.setattr(m, "run_deep_search", lambda **kw: run1)
+        runner.invoke(m.cli, ["discover-web", "-k", "free llm api", "--state", str(state_file)])
+
+        # Lần 2: CÙNG keyword, AI trích xuất được model thật → phải báo "CẬP NHẬT"
+        run2 = [
+            Provider(
+                name="Fresh",
+                base_url="https://api.fresh.ai/v1",
+                models=[{"id": "real-model", "name": "Real", "is_free": True}],
+            )
+        ]
+        monkeypatch.setattr(m, "run_deep_search", lambda **kw: run2)
+        result = runner.invoke(
+            m.cli, ["discover-web", "-k", "free llm api", "--state", str(state_file)]
+        )
+        assert result.exit_code == 0
+        assert "CẬP NHẬT" in result.output  # không rỗng — có provider được cập nhật
+        state = json.loads(state_file.read_text())
+        saved_models = state["providers"][0]["models"]
+        assert [mm["id"] for mm in saved_models] == ["real-model"]
+
+    def test_run_history_saved_after_scan(self, runner, monkeypatch, tmp_path):
+        """Sau mỗi lần scan, run_history (timestamp) phải được ghi vào file trạng thái."""
+        import src.cli.main as m
+
+        state_file = tmp_path / "scan_state.json"
+        found = [Provider(name="BrandNew", base_url="https://api.brandnew.ai/v1")]
+        monkeypatch.setattr(m, "run_deep_search", lambda **kw: found)
+        result = runner.invoke(m.cli, ["discover-web", "--state", str(state_file)])
+        assert result.exit_code == 0
+        data = json.loads(state_file.read_text())
+        assert len(data["run_history"]) == 1
+        entry = data["run_history"][0]
+        assert entry["new_providers"] == 1
+        assert "run_at" in entry
+        assert "Lần scan này" in result.output
+
+    def test_deep_search_default_on_passes_to_pipeline(self, runner, monkeypatch, tmp_path):
+        """Không truyền --deep-search → mặc định deep=True được truyền vào pipeline."""
+        import src.cli.main as m
+
+        captured = {}
+
+        def fake_run(**kw):
+            captured.update(kw)
+            return []
+
+        monkeypatch.setattr(m, "run_deep_search", fake_run)
+        result = runner.invoke(m.cli, ["discover-web", *self._state_opt(tmp_path)])
+        assert result.exit_code == 0
+        assert captured.get("deep") is True
+
+    def test_no_deep_search_disables_deep_crawl(self, runner, monkeypatch, tmp_path):
+        """--no-deep-search → deep=False: chỉ fetch trang kết quả (không follow link con)."""
+        import src.cli.main as m
+
+        captured = {}
+
+        def fake_run(**kw):
+            captured.update(kw)
+            return []
+
+        monkeypatch.setattr(m, "run_deep_search", fake_run)
+        result = runner.invoke(m.cli, ["discover-web", "--no-deep-search", *self._state_opt(tmp_path)])
+        assert result.exit_code == 0
+        assert captured.get("deep") is False
+
+    def test_social_source_available(self, runner, monkeypatch, tmp_path):
+        """--sources social chạy được (X/Threads/Instagram site-scoped)."""
+        import src.cli.main as m
+
+        captured = {}
+
+        def fake_run(**kw):
+            captured.update(kw)
+            return []
+
+        monkeypatch.setattr(m, "run_deep_search", fake_run)
+        result = runner.invoke(
+            m.cli, ["discover-web", "--sources", "social", "-k", "free llm api", *self._state_opt(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert captured.get("sources") == ["social"]
+
 
 # ---------------------------------------------------------------------------
 # backends — shared keys (Crown AI + LMSpeed)
@@ -926,6 +1151,183 @@ class TestSharedKeysSource:
         results = search_shared_keys("q", max_results=10, timeout=1.0)
         assert results == []
 
+    def test_crown_bansos_page_parsed(self, monkeypatch):
+        """Trang crown.ai.id/bansos phải được scrape — endpoint /v1 trong HTML."""
+        from src.discovery.websearch.backends import fetch_crown_bansos
+
+        html = (
+            '<html>Ambil key gratis di <a href="https://api.example-bansos.ai/v1">link</a>'
+            ' atau gunakan https://api.other-pool.id/v1/chat/completions</html>'
+        )
+        monkeypatch.setattr("httpx.get", lambda url, **kw: _fake_html_resp(html))
+        results = fetch_crown_bansos(timeout=1.0)
+        urls = {r.url for r in results}
+        assert "https://api.example-bansos.ai/v1" in urls
+        assert "https://api.other-pool.id/v1/chat/completions" in urls
+        assert all(r.source == "shared_keys" for r in results)
+        assert all("crown.ai.id/bansos" in r.snippet for r in results)
+
+    def test_masb_page_parsed_excludes_self(self, monkeypatch):
+        """ai.masb.web.id phải được scrape — endpoint /v1 của provider ngoài, bỏ chính nó."""
+        from src.discovery.websearch.backends import fetch_masb_shared_keys
+
+        html = (
+            '<html>Provider gratis: <a href="https://api.masb-shared.ai/v1">A</a>'
+            " atau https://pool.indo-ai.web.id/v1 — homepage https://ai.masb.web.id/v1</html>"
+        )
+        monkeypatch.setattr("httpx.get", lambda url, **kw: _fake_html_resp(html))
+        results = fetch_masb_shared_keys(timeout=1.0)
+        urls = {r.url for r in results}
+        assert "https://api.masb-shared.ai/v1" in urls
+        assert "https://pool.indo-ai.web.id/v1" in urls
+        assert not any("masb.web.id" in u for u in urls)  # chính trang bị loại
+
+    def test_shared_keys_includes_bansos_and_masb(self, monkeypatch):
+        """search_shared_keys giờ gồm 4 nguồn: crown status + lmspeed + bansos + masb."""
+        from src.discovery.websearch.backends import search_shared_keys
+
+        def fake_get(url, **kw):
+            if "crown.ai.id/api/status" in url:
+                return _fake_json_resp(
+                    {"ok": True, "data": {"pool": {}, "models": [{"id": "m1", "alive": True}]}}
+                )
+            if "crown.ai.id/bansos" in url:
+                return _fake_html_resp('<a href="https://api.bansos-pool.ai/v1">key</a>')
+            if "masb.web.id" in url:
+                return _fake_html_resp('<a href="https://api.masb-pool.ai/v1">key</a>')
+            return _fake_html_resp('baseUrl:"https://api.lmspeed-shared.ai/v1"')
+
+        monkeypatch.setattr("httpx.get", fake_get)
+        results = search_shared_keys("q", max_results=50, timeout=1.0)
+        urls = {r.url for r in results}
+        assert "https://api.bansos-pool.ai/v1" in urls  # bansos được gộp vào
+        assert "https://api.masb-pool.ai/v1" in urls  # masb được gộp vào
+        assert "https://api.lmspeed-shared.ai/v1" in urls
+        assert "https://crown.ai.id" in urls  # status gốc vẫn còn
+
+    def test_shared_keys_not_truncated_by_max_results(self, monkeypatch):
+        """Nhiều nguồn shared không bị cắt cụt khi max_results nhỏ."""
+        from src.discovery.websearch.backends import search_shared_keys
+
+        def fake_get(url, **kw):
+            if "crown.ai.id/api/status" in url:
+                return _fake_json_resp({"ok": True, "data": {"models": []}})
+            if "lmspeed" in url:
+                html = "".join(
+                    f'baseUrl:"https://api.s{i}.ai/v1"' for i in range(15)
+                )
+                return _fake_html_resp(html)
+            return _fake_html_resp("")
+
+        monkeypatch.setattr("httpx.get", fake_get)
+        results = search_shared_keys("q", max_results=2, timeout=1.0)
+        assert len(results) >= 15  # không bị cắt về 2
+
+
+# ---------------------------------------------------------------------------
+# Social backend — X/Threads/Instagram qua Google CSE / DuckDuckGo site-scope
+# ---------------------------------------------------------------------------
+
+
+class TestSocialBackend:
+    @pytest.fixture(autouse=True)
+    def _clean_google_env(self, monkeypatch):
+        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+        monkeypatch.delenv("GOOGLE_CSE_ID", raising=False)
+        from src.config import get_google_config
+
+        get_google_config.cache_clear()
+        yield
+        get_google_config.cache_clear()
+
+    def test_uses_ddg_site_scopes_without_key(self, monkeypatch):
+        from src.discovery.websearch.backends import search_social
+
+        captured = []
+
+        def fake_post(url, **kw):
+            assert "html.duckduckgo.com" in url
+            captured.append(kw.get("data", {}).get("q", ""))
+            return _fake_html_resp(
+                '<a class="result__a" href="https://x.com/someuser/status/1">free api thread</a>'
+            )
+
+        monkeypatch.setattr("httpx.post", fake_post)
+        results = search_social("free llm api", max_results=5, timeout=1.0)
+        # 3 nền tảng = 3 query, mỗi query có site: scope
+        assert len(captured) == 3
+        assert any("site:x.com" in q for q in captured)
+        assert any("site:threads.net" in q for q in captured)
+        assert any("site:instagram.com" in q for q in captured)
+        assert results
+        assert results[0].source == "social"
+        assert results[0].extra["platform"] in {"x", "threads", "instagram"}
+
+    def test_uses_google_cse_when_configured(self, monkeypatch):
+        from src.discovery.websearch.backends import search_social
+
+        captured = []
+
+        def fake_get(url, **kw):
+            captured.append(url)
+
+            class Resp:
+                status_code = 200
+                text = ""
+                headers = {"content-type": "application/json"}
+
+                def json(self):
+                    return {
+                        "items": [
+                            {"title": "X post", "link": "https://x.com/u/status/2", "snippet": "s"}
+                        ]
+                    }
+
+                def raise_for_status(self):
+                    pass
+
+            return Resp()
+
+        monkeypatch.setattr("httpx.get", fake_get)
+        monkeypatch.setenv("GOOGLE_API_KEY", "k")
+        monkeypatch.setenv("GOOGLE_CSE_ID", "cx")
+        from src.config import get_google_config
+
+        get_google_config.cache_clear()
+        results = search_social("free llm api", max_results=5, timeout=1.0)
+        assert captured and all("customsearch" in u for u in captured)
+        assert results and results[0].url == "https://x.com/u/status/2"
+        assert results[0].source == "social"
+
+    def test_one_platform_failing_others_continue(self, monkeypatch):
+        """1 nền tảng lỗi → các nền tảng khác vẫn trả kết quả (graceful)."""
+        from src.discovery.websearch.backends import search_social
+
+        def fake_post(url, **kw):
+            q = kw.get("data", {}).get("q", "")
+            if "site:threads.net" in q:
+                raise httpx.ConnectError("down")
+            return _fake_html_resp(
+                '<a class="result__a" href="https://example.com/post">free api</a>'
+            )
+
+        monkeypatch.setattr("httpx.post", fake_post)
+        results = search_social("free llm api", max_results=5, timeout=1.0)
+        assert results  # x + instagram vẫn về kết quả
+
+    def test_dedupes_across_platforms(self, monkeypatch):
+        from src.discovery.websearch.backends import search_social
+
+        def fake_post(url, **kw):
+            return _fake_html_resp(
+                '<a class="result__a" href="https://x.com/u/status/3">same post</a>'
+            )
+
+        monkeypatch.setattr("httpx.post", fake_post)
+        results = search_social("q", max_results=9, timeout=1.0)
+        urls = [r.url for r in results]
+        assert len(urls) == len(set(urls))  # URL trùng giữa các platform bị dedupe
+
     def test_crown_snippet_contains_api_url_for_heuristic(self, monkeypatch):
         """Snippet phải chứa base_url /v1 để heuristic extractor bắt được."""
         from src.discovery.websearch.backends import search_shared_keys
@@ -943,6 +1345,223 @@ class TestSharedKeysSource:
         crown = [p for p in providers if "crown.ai.id" in p.base_url]
         assert len(crown) == 1
         assert crown[0].base_url == "https://crown.ai.id/v1"
+
+
+# ---------------------------------------------------------------------------
+# Google backend — Custom Search API (có key) / Google News RSS (fallback)
+# ---------------------------------------------------------------------------
+
+
+class TestGoogleBackend:
+    GOOGLE_RSS = """<?xml version="1.0" encoding="UTF-8"?>
+    <rss version="2.0">
+      <channel>
+        <item>
+          <title>Best free LLM APIs of 2026</title>
+          <link>https://techblog.example.com/free-llm-apis</link>
+          <pubDate>Thu, 29 Oct 2026 10:00:00 GMT</pubDate>
+          <description><![CDATA[<a href="https://techblog.example.com">TechBlog</a> List of free providers]]></description>
+          <source url="https://techblog.example.com">TechBlog</source>
+        </item>
+        <item>
+          <title>New AI startup offers free tier</title>
+          <link>https://news.example.org/startup</link>
+          <pubDate>Thu, 29 Oct 2026 09:00:00 GMT</pubDate>
+          <description><![CDATA[<a href="https://news.example.org">News</a> Free tier details]]></description>
+          <source url="https://news.example.org">News</source>
+        </item>
+      </channel>
+    </rss>"""
+
+    @pytest.fixture(autouse=True)
+    def _clean_google_env(self, monkeypatch):
+        """Xoá env Google cho mỗi test — trạng thái fallback mặc định là RSS."""
+        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+        monkeypatch.delenv("GOOGLE_CSE_ID", raising=False)
+        from src.config import get_google_config
+
+        get_google_config.cache_clear()
+        yield
+        get_google_config.cache_clear()
+
+    def test_fallback_news_rss_when_no_key(self, monkeypatch):
+        from src.discovery.websearch.backends import search_google
+
+        captured_urls = []
+
+        def fake_get(url, **kw):
+            captured_urls.append(url)
+
+            class Resp:
+                status_code = 200
+                text = self.GOOGLE_RSS
+                headers = {"content-type": "application/xml"}
+
+                def json(self):
+                    return {}
+
+                def raise_for_status(self):
+                    pass
+
+            return Resp()
+
+        monkeypatch.setattr("httpx.get", fake_get)
+        results = search_google("free llm api", max_results=10, timeout=1.0)
+        assert len(results) == 2
+        assert all(r.source == "google" for r in results)
+        assert results[0].url == "https://techblog.example.com/free-llm-apis"
+        assert "TechBlog" in results[0].snippet  # news source được ghép vào snippet
+        assert "<a " not in results[0].snippet  # HTML đã được làm sạch
+        assert "news.google.com/rss/search" in captured_urls[0]  # dùng RSS, không dùng CSE
+
+    def test_custom_search_used_when_configured(self, monkeypatch):
+        from src.discovery.websearch.backends import search_google
+
+        captured_urls = []
+
+        def fake_get(url, **kw):
+            captured_urls.append(url)
+
+            class Resp:
+                status_code = 200
+                text = ""
+                headers = {"content-type": "application/json"}
+
+                def json(self):
+                    return {
+                        "items": [
+                            {
+                                "title": "Free LLM API list",
+                                "link": "https://provider.example.com/free",
+                                "snippet": "Get a free API key",
+                                "displayLink": "provider.example.com",
+                            }
+                        ]
+                    }
+
+                def raise_for_status(self):
+                    pass
+
+            return Resp()
+
+        monkeypatch.setattr("httpx.get", fake_get)
+        monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+        monkeypatch.setenv("GOOGLE_CSE_ID", "test-cx")
+        from src.config import get_google_config
+
+        get_google_config.cache_clear()
+        results = search_google("free llm api", max_results=10, timeout=1.0)
+        assert len(results) == 1
+        assert results[0].url == "https://provider.example.com/free"
+        assert results[0].source == "google"
+        assert "customsearch/v1" in captured_urls[0]  # đúng endpoint CSE
+        assert "key=test-key" in captured_urls[0] and "cx=test-cx" in captured_urls[0]
+
+    def test_cse_error_falls_back_to_rss(self, monkeypatch):
+        """CSE lỗi (network/schema) → tự chuyển sang Google News RSS, không crash."""
+        from src.discovery.websearch.backends import search_google
+
+        def fake_get(url, **kw):
+            if "customsearch" in url:
+                raise httpx.ConnectError("down")
+            assert "news.google.com/rss/search" in url
+
+            class Resp:
+                status_code = 200
+                text = self.GOOGLE_RSS
+                headers = {"content-type": "application/xml"}
+
+                def json(self):
+                    return {}
+
+                def raise_for_status(self):
+                    pass
+
+            return Resp()
+
+        monkeypatch.setattr("httpx.get", fake_get)
+        monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+        monkeypatch.setenv("GOOGLE_CSE_ID", "test-cx")
+        from src.config import get_google_config
+
+        get_google_config.cache_clear()
+        results = search_google("free llm api", timeout=1.0)
+        assert len(results) == 2  # RSS fallback vẫn trả kết quả
+
+    def test_cse_empty_items_falls_back_to_rss(self, monkeypatch):
+        from src.discovery.websearch.backends import search_google
+
+        def fake_get(url, **kw):
+            if "customsearch" in url:
+
+                class Resp:
+                    status_code = 200
+                    text = ""
+                    headers = {"content-type": "application/json"}
+
+                    def json(self):
+                        return {"items": []}
+
+                    def raise_for_status(self):
+                        pass
+
+                return Resp()
+
+            class RSSResp:
+                status_code = 200
+                text = self.GOOGLE_RSS
+                headers = {"content-type": "application/xml"}
+
+                def json(self):
+                    return {}
+
+                def raise_for_status(self):
+                    pass
+
+            return RSSResp()
+
+        monkeypatch.setattr("httpx.get", fake_get)
+        monkeypatch.setenv("GOOGLE_API_KEY", "k")
+        monkeypatch.setenv("GOOGLE_CSE_ID", "cx")
+        from src.config import get_google_config
+
+        get_google_config.cache_clear()
+        results = search_google("q", timeout=1.0)
+        assert len(results) == 2
+
+    def test_malformed_rss_raises(self, monkeypatch):
+        from src.discovery.websearch.backends import search_google
+
+        def fake_get(url, **kw):
+            class Resp:
+                status_code = 200
+                text = "<rss><channel><item>không đóng thẻ"
+                headers = {"content-type": "application/xml"}
+
+                def json(self):
+                    return {}
+
+                def raise_for_status(self):
+                    pass
+
+            return Resp()
+
+        monkeypatch.setattr("httpx.get", fake_get)
+        with pytest.raises(RuntimeError, match="RSS"):
+            search_google("q", timeout=1.0)
+
+    def test_registered_in_backends(self):
+        from src.discovery.websearch.backends import SEARCH_BACKENDS
+
+        assert "google" in SEARCH_BACKENDS
+        assert "google" in AVAILABLE_SOURCES
+
+    def test_google_config_is_configured(self):
+        from src.config import GoogleSearchConfig
+
+        assert GoogleSearchConfig(GOOGLE_API_KEY="", GOOGLE_CSE_ID="").is_configured() is False
+        assert GoogleSearchConfig(GOOGLE_API_KEY="k", GOOGLE_CSE_ID="").is_configured() is False
+        assert GoogleSearchConfig(GOOGLE_API_KEY="k", GOOGLE_CSE_ID="cx").is_configured() is True
 
 
 # ---------------------------------------------------------------------------
@@ -1052,3 +1671,75 @@ class TestScanState:
                 raise RuntimeError("crash giữa chừng")
         # Dù crash, trạng thái vẫn được lưu
         assert ScanState.load(path).seen_urls == {"https://x.com/1"}
+
+    def test_merge_providers_updates_existing_info(self, tmp_path):
+        """Provider tìm lại phải được CẬP NHẬT info (model mới) — không bị bỏ qua."""
+        from src.storage.scan_state import ScanState
+
+        state = ScanState(tmp_path / "state.json")
+        old = Provider(name="P1", base_url="https://api.p1.ai/v1", models=[])
+        state.merge_providers([old])
+        assert state.last_merge_updated == []
+
+        # Tìm lại cùng provider, lần này AI trích xuất được model thật
+        refreshed = Provider(
+            name="P1",
+            base_url="https://api.p1.ai/v1",
+            models=[{"id": "free-m", "name": "Free M", "is_free": True}],
+            description="free tier 2026",
+        )
+        added = state.merge_providers([refreshed])
+        assert added == []  # không thêm trùng
+        assert len(state.last_merge_updated) == 1
+        saved = state.providers[0]
+        assert [m.id for m in saved.models] == ["free-m"]  # model được cập nhật
+        assert "free tier 2026" in saved.description
+
+    def test_merge_providers_no_update_flag(self, tmp_path):
+        """update_existing=False → bỏ qua provider trùng như hành vi cũ."""
+        from src.storage.scan_state import ScanState
+
+        state = ScanState(tmp_path / "state.json")
+        state.merge_providers([Provider(name="P1", base_url="https://api.p1.ai/v1")])
+        again = Provider(
+            name="P1",
+            base_url="https://api.p1.ai/v1",
+            models=[{"id": "m2", "name": "M2"}],
+        )
+        assert state.merge_providers([again], update_existing=False) == []
+        assert state.last_merge_updated == []
+        assert state.providers[0].models == []
+
+    def test_run_history_recorded_and_persisted(self, tmp_path):
+        """record_run lưu timestamp + keyword; roundtrip qua file giữ nguyên."""
+        from src.storage.scan_state import ScanState
+
+        path = tmp_path / "state.json"
+        state = ScanState(path)
+        state.record_run(["kw-a", "kw-b"], added=2, updated=1, mode="ai")
+        state.save()
+
+        loaded = ScanState.load(path)
+        assert len(loaded.run_history) == 1
+        entry = loaded.run_history[0]
+        assert entry["keywords"] == ["kw-a", "kw-b"]
+        assert entry["new_providers"] == 2
+        assert entry["updated_providers"] == 1
+        assert entry["mode"] == "ai"
+        assert "run_at" in entry  # timestamp phân biệt các lần scan
+
+    def test_load_v1_state_without_run_history(self, tmp_path):
+        """File state cũ (v1, không run_history) phải load được — backward compatible."""
+        from src.storage.scan_state import ScanState
+
+        path = tmp_path / "state.json"
+        legacy = {
+            "version": 1,
+            "seen_urls": ["https://old.com/a"],
+            "used_keywords": ["kw-old"],
+            "providers": [],
+        }
+        path.write_text(json.dumps(legacy), encoding="utf-8")
+        loaded = ScanState.load(path)
+        assert loaded.seen_urls == {"https://old.com/a"}
+        assert loaded.run_history == []  # thiếu → mặc định rỗng, không crash

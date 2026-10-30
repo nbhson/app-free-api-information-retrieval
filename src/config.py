@@ -125,6 +125,30 @@ class APIConfig(BaseSettings):
         return bool(self.get_api_keys())
 
 
+class GoogleSearchConfig(BaseSettings):
+    """
+    Cấu hình Google Custom Search API cho backend 'google' (discover-web).
+
+    - Có đủ GOOGLE_API_KEY + GOOGLE_CSE_ID → dùng Custom Search JSON API
+      (web index THẬT của Google, kết quả đáng tin nhất).
+    - Thiếu 1 trong 2 → backend tự fallback sang Google News RSS (public,
+      không cần key) — vẫn chạy được nhưng chỉ phủ trang tin tức.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=_ENV_FILE if _ENV_FILE.exists() else None,
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    api_key: str = Field("", alias="GOOGLE_API_KEY")
+    cse_id: str = Field("", alias="GOOGLE_CSE_ID")
+
+    def is_configured(self) -> bool:
+        """Custom Search API sẵn sàng = có đủ key + CSE ID."""
+        return bool(self.api_key and self.cse_id)
+
+
 class StorageConfig(BaseSettings):
     """Cấu hình storage cho lịch sử verify (SQLite)."""
 
@@ -154,6 +178,12 @@ def get_webhook_config() -> WebhookConfig:
 def get_api_config() -> APIConfig:
     """Singleton API config (auth keys + CORS)."""
     return APIConfig()
+
+
+@lru_cache(maxsize=1)
+def get_google_config() -> GoogleSearchConfig:
+    """Singleton Google Custom Search config (backend 'google' của discover-web)."""
+    return GoogleSearchConfig()
 
 
 @lru_cache(maxsize=1)

@@ -21,6 +21,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from src.models import Provider
 
@@ -36,7 +37,7 @@ def _default_path() -> Path:
     return Path(env) if env else DEFAULT_STATE_PATH
 
 
-_STATE_VERSION = 1
+_STATE_VERSION = 2  # v2: thêm run_history (timestamp từng lần scan) + merge cập nhật info
 
 
 class ScanState:
@@ -53,6 +54,11 @@ class ScanState:
         self.used_keywords: set[str] = set()
         self.providers: list[Provider] = []
         self.last_run_at: str | None = None
+        # Lịch sử các lần scan (timestamp + keyword + số provider mới/cập nhật)
+        # — giúp phân biệt các lần quét và debug việc chạy lại cùng keyword
+        self.run_history: list[dict[str, Any]] = []
+        # Provider ĐÃ CÓ được cập nhật info ở lần merge gần nhất (không phải thêm mới)
+        self.last_merge_updated: list[Provider] = []
 
     # ------------------------------------------------------------------
     # Load / save
@@ -73,6 +79,7 @@ class ScanState:
             state.used_keywords = {k.lower() for k in raw.get("used_keywords", []) if k}
             state.providers = [Provider.model_validate(p) for p in raw.get("providers", []) if p]
             state.last_run_at = raw.get("last_run_at")
+            state.run_history = raw.get("run_history", [])
         except (json.JSONDecodeError, OSError, ValueError, TypeError) as e:
             logger.warning("File trạng thái %s lỗi (%s) — reset về rỗng", state.path, e)
             state = cls(path)
@@ -87,6 +94,8 @@ class ScanState:
             "seen_urls": sorted(self.seen_urls),
             "used_keywords": sorted(self.used_keywords),
             "total_providers": len(self.providers),
+            # run_history: timestamp từng lần scan để phân biệt các lần quét
+            "run_history": self.run_history[-50:],
             "providers": [p.model_dump(mode="json") for p in self.providers],
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -141,23 +150,64 @@ class ScanState:
             fresh = list(pool)
         return fresh[:batch_size]
 
-    def merge_providers(self, new_providers: list[Provider]) -> list[Provider]:
+    def merge_providers(
+        self, new_providers: list[Provider], update_existing: bool = True
+    ) -> list[Provider]:
         """
-        Gộp provider mới vào kho tích luỹ — loại trùng theo base_url/name
-        (giữ bản cũ khi trùng để không mất trạng thái verify trước đó).
-        Trả về danh sách provider mới THẬT SỰ thêm vào (chưa có trước đó).
+        Gộp provider vào kho tích luỹ:
+        - Provider MỚI (theo base_url/name) → thêm vào kho, trả về trong kết quả.
+        - Provider ĐÃ CÓ + update_existing=True → cập nhật thông tin (models,
+          description, website, tags) nhưng GIỮ nguyên status verify và tag
+          cũ để không mất trạng thái — được tính vào `self.last_merge_updated`.
+        - Provider ĐÃ CÓ + update_existing=False → bỏ qua như cũ.
+
+        Returns:
+            Danh sách provider MỚI THẬT SỰ thêm vào (chưa có trước đó).
+            Số provider được cập nhật info nằm ở `self.last_merge_updated`.
         """
-        existing_urls = {p.base_url.lower() for p in self.providers}
-        existing_names = {p.name.lower() for p in self.providers}
+        self.last_merge_updated = []
+        existing_by_url = {p.base_url.lower(): p for p in self.providers}
+        existing_by_name = {p.name.lower(): p for p in self.providers}
         added: list[Provider] = []
         for p in new_providers:
-            if p.base_url.lower() in existing_urls or p.name.lower() in existing_names:
+            old = existing_by_url.get(p.base_url.lower()) or existing_by_name.get(p.name.lower())
+            if old is not None:
+                if update_existing:
+                    self._refresh_provider(old, p)
+                    self.last_merge_updated.append(old)
                 continue
-            existing_urls.add(p.base_url.lower())
-            existing_names.add(p.name.lower())
+            existing_by_url[p.base_url.lower()] = p
+            existing_by_name[p.name.lower()] = p
             self.providers.append(p)
             added.append(p)
         return added
+
+    @staticmethod
+    def _refresh_provider(old: Provider, new: Provider) -> None:
+        """Cập nhật info của provider đã có từ dữ liệu tìm lại — giữ status verify cũ."""
+        if new.models:
+            old.models = new.models
+        if new.description and new.description != old.description:
+            old.description = new.description
+        if new.website and new.website != old.website:
+            old.website = new.website
+        for t in new.tags:
+            if t not in old.tags:
+                old.tags.append(t)
+
+    def record_run(
+        self, keywords: list[str], added: int, updated: int, mode: str
+    ) -> dict[str, Any]:
+        """Ghi 1 entry lịch sử cho lần scan vừa xong (timestamp + kết quả)."""
+        entry: dict[str, Any] = {
+            "run_at": datetime.now(timezone.utc).isoformat(),
+            "mode": mode,
+            "keywords": keywords,
+            "new_providers": added,
+            "updated_providers": updated,
+        }
+        self.run_history.append(entry)
+        return entry
 
     def stats(self) -> dict[str, int | str | None]:
         """Tóm tắt trạng thái (hiển thị CLI): số URL/keyword/provider đã tích luỹ."""

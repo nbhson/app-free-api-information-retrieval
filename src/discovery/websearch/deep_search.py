@@ -17,6 +17,7 @@ from src.discovery import KNOWN_PROVIDERS
 from src.discovery.websearch.backends import SearchResult, run_search
 from src.discovery.websearch.extractor import (
     collect_page_contexts,
+    collect_page_contexts_deep,
     extract_heuristic,
     extract_with_ai,
 )
@@ -64,6 +65,7 @@ def run_deep_search(
     max_pages: int = 5,
     exclude_urls: set[str] | None = None,
     on_results: Callable[[list[SearchResult]], None] | None = None,
+    deep: bool = True,
 ) -> list[Provider]:
     """
     Chạy deep search đầy đủ: search → extract → dedupe với registry.
@@ -80,6 +82,9 @@ def run_deep_search(
             để mỗi lần quét chỉ mang về trang web MỚI.
         on_results: Callback nhận danh sách kết quả search ĐÃ lọc (sau khi
             loại exclude_urls) — dùng để caller đánh dấu trạng thái đã xử lý.
+        deep: AI deep crawl 2 cấp — fetch trang kết quả rồi RÚT link con đáng
+            follow (trang bansos, trang share key...) để AI đọc thêm (chỉ dùng
+            khi mode='ai'). Chậm hơn nhưng bắt được provider ẩn sâu.
 
     Returns:
         Danh sách provider mới (đã loại trùng với registry), tag 'web-discovered'.
@@ -105,7 +110,14 @@ def run_deep_search(
             )
             providers = extract_heuristic(results)
         else:
-            contexts = collect_page_contexts(results, max_pages=max_pages, timeout=timeout)
+            if deep:
+                # Deep crawl: fetch trang cấp 1 → rút link con → fetch cấp 2
+                console.print("[dim]Deep crawl: fetch trang + link con (2 cấp)...[/dim]")
+                contexts = collect_page_contexts_deep(
+                    results, max_pages=max_pages, timeout=timeout
+                )
+            else:
+                contexts = collect_page_contexts(results, max_pages=max_pages, timeout=timeout)
             console.print(
                 f"[dim]Gửi {len(contexts)} trang + {len(results)} snippet cho AI trích xuất...[/dim]"
             )

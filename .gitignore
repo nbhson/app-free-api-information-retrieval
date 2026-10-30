@@ -18,6 +18,7 @@ venv/
 data/*.db
 data/scan_state.json
 data/discovered.json
+data/web_providers.json
 out.json
 
 # Coverage artifacts

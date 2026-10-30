@@ -48,6 +48,15 @@ docker compose build
 # Liệt kê tất cả provider
 docker compose run app list
 
+# ⭐ Xem TẤT CẢ provider ĐÃ TÍCH LUỸY qua discover-web (kho của bạn)
+docker compose run --rm app list --from data/web_providers.json
+
+# Chỉ provider còn sống (active) trong kho tích luỹ
+docker compose run --rm app list --from data/scan_state.json --tag verified
+
+# Xuất kho tích luỹ ra CSV
+docker compose run --rm app list --from data/web_providers.json --format csv
+
 # Liệt kê + kiểm tra endpoint còn sống
 docker compose run app list --verify
 
@@ -74,9 +83,35 @@ docker compose run app discover-live --output data/live_free.json
 
 # ⭐ Deep Web Search — "tìm ngẫu nhiên" provider mới từ internet thật
 # (Reddit/HN/DDG/GitHub, nhiều keyword, verify + lưu ra file)
+# Mặc định dùng --mode ai: LLM đọc NỘI DUNG trang thật để trích xuất provider
+# (chính xác hơn heuristic regex; AI chưa cấu hình → tự fallback heuristic)
 docker compose run app discover-web \
   -k "free llm api 2026, cheap inference api, free tier chat completions" \
   --verify --output data/web_providers.json
+
+# Tìm SÂU: quét lại cả trang cũ (AI đọc nội dung mới nhất) — bỏ dedup URL
+docker compose run app discover-web --no-dedup \
+  -k "free llm api 2026" --pages 10 --max-results 20 \
+  --verify --output data/web_providers.json
+
+# Tìm chỉ trên Google (Custom Search API nếu .env có GOOGLE_API_KEY + GOOGLE_CSE_ID,
+# ngược lại tự fallback Google News RSS — không cần key)
+docker compose run app discover-web --sources google \
+  -k "free llm api 2026, free tier inference" --verify -o data/web_providers.json
+
+# Nguồn social — bài đăng free API trên X (Twitter), Threads, Instagram
+# (Google index với site: scope khi có key; DDG fallback khi không có)
+docker compose run app discover-web --sources social \
+  -k "free llm api" --verify -o data/web_providers.json
+
+# Deep crawl mặc định BẬT: AI fetch trang kết quả rồi rút link con đáng follow
+# (trang bansos, trang share key...) để đọc thêm — bắt được provider ẩn sâu
+# như crown.ai.id/bansos, ai.masb.web.id. Tắt bằng --no-deep-search nếu cần nhanh.
+docker compose run app discover-web --no-dedup \
+  -k "free api bansos gratis" --pages 10 --verify -o data/web_providers.json
+
+# Chạy lượt kế tiếp KHÔNG truyền -k → tự xoay sang keyword CHƯA dùng trong pool
+docker compose run app discover-web --verify --output data/web_providers.json
 
 # Xem help
 docker compose run app --help
@@ -86,6 +121,14 @@ docker compose run app list --help
 > Kết quả `--output` lưu vào `./data` trên host nhờ volume mount
 > (`./data:/app/data`). Command mặc định của service `app` là `list`,
 > nên `docker compose run app` (không args) cũng chạy được.
+
+#### Cơ chế trạng thái quét (`data/scan_state.json`)
+
+- `seen_urls` — URL đã xử lý bị loại ở lần sau (mặc định). **`--no-dedup`** tắt cơ chế này.
+- `used_keywords` — xoay vòng keyword qua pool khi không truyền `-k`.
+- `providers` — tích luỹ qua các lần chạy; provider tìm lại được **cập nhật info**
+  (model mới, description) thay vì bị bỏ qua.
+- `run_history` — timestamp từng lần scan (phân biệt các lần quét, giới hạn 50 entry).
 
 ### REST API server (lâu dài)
 
@@ -113,6 +156,15 @@ chạy `docker compose up` / `run`. Nếu chưa có:
 
 ```bash
 cp .env.example .env
+```
+
+Nguồn Google của `discover-web` hoạt động không cần key (Google News RSS),
+nhưng để có kết quả **đáng tin nhất** (web index đầy đủ của Google thay vì
+chỉ tin tức), thêm 2 biến vào `.env`:
+
+```bash
+GOOGLE_API_KEY=...    # Custom Search API key (free 100 query/ngày)
+GOOGLE_CSE_ID=...     # Programmable Search Engine ID (bật "Search the entire web")
 ```
 
 ### Healthcheck trong container
@@ -252,26 +304,40 @@ registry cứng:
 ## 🔎 Deep Web Search ("tìm ngẫu nhiên" provider mới từ internet)
 
 Lệnh `discover-web` search **trực tiếp các nguồn internet công khai** — Reddit,
-Hacker News, DuckDuckGo, GitHub — với từ khoá tuỳ ý, rồi trích xuất provider từ
-kết quả. Đây là cách tìm provider mới nổi chưa có trong registry:
+Hacker News, DuckDuckGo, GitHub, Google, X/Twitter + Threads + Instagram (social),
+các trang shared-key cộng đồng (crown.ai.id/bansos, ai.masb.web.id, LMSpeed) —
+với từ khoá tuỳ ý, rồi trích xuất provider từ kết quả. Đây là cách tìm provider
+mới nổi chưa có trong registry:
 
 ```bash
 # ⭐ Tìm ngẫu nhiên — quét mọi nguồn, nhiều keyword, verify + lưu kết quả
+# Mặc định: --mode ai (LLM đọc nội dung trang) + --deep-search (deep crawl 2 cấp)
 ./venv/bin/python run.py discover-web \
   -k "free llm api 2026, cheap inference api, free tier chat completions" \
   --verify --output data/web_providers.json
 
-# Chỉ định nguồn cụ thể (mặc định: tất cả)
+# Tìm SÂU toàn lực: quét lại cả trang cũ (--no-dedup) + đào sâu link con
+./venv/bin/python run.py discover-web --no-dedup \
+  -k "free api bansos gratis, free llm api community, free tier inference" \
+  --pages 10 --max-results 20 \
+  --verify --output data/web_providers.json
+
+# Chỉ định nguồn cụ thể (mặc định: tất cả — duckduckgo, github, google,
+# hackernews, reddit, shared, social)
 ./venv/bin/python run.py discover-web --sources github,hackernews --max-results 5
 
-# Mode AI: LLM đọc nội dung trang thật để trích xuất (cần .env)
-./venv/bin/python run.py discover-web --mode ai --pages 10
+# Nguồn social — bài đăng free API trên X (Twitter), Threads, Instagram
+./venv/bin/python run.py discover-web --sources social -k "free llm api"
+
+# Tắt deep crawl nếu cần nhanh (chỉ fetch trang kết quả, không follow link con)
+./venv/bin/python run.py discover-web --no-deep-search
 ```
 
 ### ⏯️ Lưu trạng thái & tiếp tục giữa các lần chạy (resume)
 
 Mỗi lần `discover-web` quét xong đều **lưu trạng thái** vào `data/scan_state.json`
-(URL đã xử lý, keyword đã dùng, provider đã tìm thấy). Lần chạy sau **tự tiếp tục
+(URL đã xử lý, keyword đã dùng, provider đã tìm thấy, `run_history` — timestamp
+từng lần scan). Lần chạy sau **tự tiếp tục
 từ nơi đã dừng**: bỏ qua URL cũ, xoay vòng sang keyword chưa dùng, và gộp kết quả
 mới vào kho tích luỹ — mục tiêu là mỗi lần quét đều mang về **trang web MỚI có
 free token**, không lặp lại kết quả cũ:
@@ -286,12 +352,16 @@ free token**, không lặp lại kết quả cũ:
 # Kiểm soát tốc độ xoay keyword / quét lại từ đầu
 ./venv/bin/python run.py discover-web --kw-batch 12   # 12 keyword mới mỗi lần chạy
 ./venv/bin/python run.py discover-web --fresh         # bỏ trạng thái cũ, quét lại từ đầu
+
+# Tắt dedup URL — quét lại cả trang cũ (AI đọc nội dung MỚI NHẤT của trang)
+./venv/bin/python run.py discover-web --no-dedup -k "free llm api"
 ```
 
 File `data/scan_state.json` (đổi đường dẫn qua env `SCAN_STATE_PATH` hoặc
 `--state`) gồm: `seen_urls`, `used_keywords`, `providers` tích luỹ kèm
-**danh sách model free** của từng provider. File hỏng/mất → tự reset, pipeline
-vẫn chạy bình thường.
+**danh sách model free** của từng provider, `run_history` (timestamp từng lần
+scan). Provider tìm lại được **cập nhật info** (model mới, description) thay vì
+bị bỏ qua. File hỏng/mất → tự reset, pipeline vẫn chạy bình thường.
 
 > 🐳 **Docker:** state nằm trong `data/` — volume `$(pwd)/data:/app/data` đã có
 > sẵn trong các ví dụ ở trên giữ nguyên trạng thái giữa các lần
@@ -300,8 +370,9 @@ vẫn chạy bình thường.
 **Docker:**
 
 ```bash
-docker compose run app discover-web \
-  -k "free llm api 2026, cheap inference api, free tier chat completions" \
+docker compose run --rm app discover-web --no-dedup \
+  -k "free api bansos gratis, free llm api community, free tier inference" \
+  --pages 10 --max-results 20 \
   --verify --output data/web_providers.json
 ```
 
@@ -318,18 +389,31 @@ So sánh 4 chế độ discovery:
 | `list` | Registry cứng trong code (23 providers) | ❌ | Cũ nhất (theo lần curate) |
 | `discover-ai` | Trí nhớ của LLM | ✅ (AI key) | Cũ (training data) |
 | `discover-live` | **OpenRouter API trực tiếp** | ❌ | **Mới nhất** ✅ |
-| `discover-web` | **5 nguồn internet thật** (Reddit/HN/DDG/GitHub/LMSpeed) | ❌ | **Mới nhất** ✅ |
+| `discover-web` | **7 nguồn internet thật** (Reddit/HN/DDG/Google/social/shared/LMSpeed) | ❌ | **Mới nhất** ✅ |
 
 ### Nguồn 'shared' — API key cộng đồng (bansos)
 
 `discover-web --sources shared` query trực tiếp các trang chia sẻ key cộng đồng:
 - **Crown AI status API** (`crown.ai.id/api/status`, JSON public) — pool sống/chết,
   model nào online hiện tại
+- **Crown bansos** (`crown.ai.id/bansos`) — trang phát key free của cộng đồng
+  Indonesia, scrape mọi endpoint API `/v1` trong HTML
 - **LMSpeed shared keys** (`lmspeed.net/free-api-keys`) — baseUrl thật của key
   cộng đồng đang chia sẻ (Nightrouter, Agentrouter, ...)
+- **masb.web.id** (`ai.masb.web.id`) — trang cộng đồng Indonesia chia sẻ
+  key/API free
 
 Registry cũng có sẵn 2 community pool Indonesia: **Crown AI** (`crown.ai.id/v1`,
 key miễn phí tại `/bansos`) và **free.ai.id** (không cần đăng ký).
+
+### AI deep crawl 2 cấp (--deep-search, mặc định BẬT)
+
+Khi `--mode ai` + `--deep-search` (mặc định), pipeline fetch trang kết quả
+cấp 1 rồi **rút link con đáng follow** — link chứa hint `free/api/key/bansos/
+gratis/harga/daftar...` hoặc cùng domain với trang gốc — và fetch tiếp cấp 2
+để AI đọc thêm. Nhờ vậy bắt được provider ẩn sâu kiểu trang bansos con của
+crown.ai.id hay trang share key của masb.web.id, mà search trực tiếp không
+trả về. Tổng số trang vẫn bị chặn bởi `--pages`; tắt bằng `--no-deep-search`.
 
 ## 📤 Xuất CSV cho spreadsheet
 

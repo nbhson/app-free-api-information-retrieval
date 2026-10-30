@@ -123,6 +123,34 @@ def _save_and_report(provider_list, output: str | None) -> None:
     console.print(f"[green]✓[/green] Đã lưu vào [bold]{path}[/bold]")
 
 
+def _load_accumulated(path: str) -> list[Provider] | None:
+    """
+    Đọc kho provider TÍCH LUỸY từ file JSON — hỗ trợ 3 định dạng:
+    - data/web_providers.json / discovered.json (ProviderList aggregate)
+    - data/scan_state.json (trạng thái quét discover-web)
+    Cả 2 đều chứa key 'providers'. File không tồn tại/sai → in lỗi, trả None
+    (caller exit 1).
+    """
+    file = Path(path)
+    if not file.exists():
+        console.print(f"[red]✗ Không tìm thấy file:[/red] {path}")
+        console.print(
+            "[dim]Kho tích luỹ được tạo bởi: docker compose run --rm app discover-web "
+            "--output data/web_providers.json[/dim]"
+        )
+        return None
+    try:
+        data = json.loads(file.read_text(encoding="utf-8"))
+        raw_providers = data.get("providers", [])
+        if not isinstance(raw_providers, list):
+            raise ValueError("key 'providers' không phải list")
+        providers = [Provider.model_validate(p) for p in raw_providers if p]
+    except (json.JSONDecodeError, OSError, ValueError, TypeError) as e:
+        console.print(f"[red]✗ File {path} lỗi:[/red] {e}")
+        return None
+    return providers
+
+
 def _print_provider_table(providers, show_all_models: bool = False) -> None:
     table = Table(box=box.ROUNDED, show_lines=False, title="Free LLM Providers")
     table.add_column("Provider", style="cyan", no_wrap=True)
@@ -175,14 +203,34 @@ def cli():
 )
 @click.option("--no-auth", is_flag=True, default=False, help="Chỉ hiện provider không cần API key")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Bật debug logging")
-def list_cmd(fmt, output, verify, show_all_models, tag, no_auth, verbose):
-    """Liệt kê tất cả provider đã biết."""
+@click.option(
+    "--from",
+    "from_file",
+    type=str,
+    default=None,
+    help=(
+        "Xem provider TÍCH LUỸY từ file (thay vì registry cứng): "
+        "data/web_providers.json, data/scan_state.json, data/discovered.json. "
+        "VD: docker compose run --rm app list --from data/web_providers.json"
+    ),
+)
+def list_cmd(fmt, output, verify, show_all_models, tag, no_auth, verbose, from_file):
+    """Liệt kê tất cả provider đã biết (registry) hoặc kho tích luỹ (--from)."""
     if verbose:
         setup_logging("DEBUG")
     else:
         setup_logging("WARNING")  # mặc định quiet
 
-    providers = list(KNOWN_PROVIDERS)
+    if from_file:
+        providers = _load_accumulated(from_file)
+        if providers is None:
+            sys.exit(1)
+        console.print(
+            f"[dim]Kho tích luỹ từ [bold]{from_file}[/bold]: "
+            f"{len(providers)} provider[/dim]\n"
+        )
+    else:
+        providers = list(KNOWN_PROVIDERS)
     originals = [p.model_copy(deep=True) for p in providers]
 
     # Lọc theo tag
@@ -461,9 +509,13 @@ def discover_live_cmd(output, show_all_models):
 @click.option(
     "--mode",
     type=click.Choice(["heuristic", "ai"]),
-    default="heuristic",
+    default="ai",
     show_default=True,
-    help="Trích xuất: heuristic (regex, không cần key) hoặc ai (LLM đọc nội dung trang)",
+    help=(
+        "Trích xuất: ai (LLM đọc nội dung trang — chính xác hơn, KHÔNG truyền --mode "
+        "là dùng ai) hoặc heuristic (regex, không cần key). AI chưa cấu hình hoặc lỗi "
+        "→ tự fallback về heuristic."
+    ),
 )
 @click.option(
     "--pages", default=5, show_default=True, type=int, help="Số trang fetch tối đa cho AI mode"
@@ -496,6 +548,27 @@ def discover_live_cmd(output, show_all_models):
     type=int,
     help="Số keyword mới tối đa mỗi lần chạy (khi không truyền -k) — xoay vòng qua pool",
 )
+@click.option(
+    "--no-dedup",
+    "no_dedup",
+    is_flag=True,
+    default=False,
+    help=(
+        "Tắt dedup URL đã xem: quét lại cả trang cũ (kể cả cùng keyword cũ) — "
+        "dùng khi muốn AI đọc lại nội dung đã cập nhật của trang. Chậm hơn."
+    ),
+)
+@click.option(
+    "--deep-search/--no-deep-search",
+    "deep_search",
+    default=True,
+    show_default=True,
+    help=(
+        "AI deep crawl 2 cấp: fetch trang kết quả rồi rút link con đáng follow "
+        "(trang bansos, trang share key...) để AI đọc thêm. Mặc định bật — "
+        "tắt (--no-deep-search) để nhanh hơn."
+    ),
+)
 def discover_web(
     keywords,
     sources,
@@ -508,16 +581,23 @@ def discover_web(
     resume,
     state_path,
     kw_batch,
+    no_dedup,
+    deep_search,
 ):
     """Deep Web Search — quét Reddit / Hacker News / DuckDuckGo / GitHub với keyword tùy ý.
 
-    Tìm provider free TỪ NỘI DUNG INTERNET THẬT (không phải trí nhớ LLM):
-    - mode heuristic: regex bắt endpoint /v1 trong kết quả search (không cần key)
-    - mode ai: fetch nội dung trang thật, LLM trích xuất provider (cần .env)
+    Tìm provider free TỪ NỘI DUNG INTERNET THẬT (không phải trí nhớ LLM).
+    Mặc định dùng --mode ai: fetch nội dung trang, LLM trích xuất provider
+    (cần .env). Heuristic mode: regex bắt endpoint /v1 trong kết quả search
+    (không cần key) — dùng khi muốn nhanh và không cần AI.
 
-    Mỗi lần quét XONG đều LƯU TRẠNG THÁI (URL đã xử lý, keyword đã dùng,
-    provider đã tìm thấy) — lần chạy sau tự tiếp tục từ nơi đã dừng và
-    chỉ tìm trang web MỚI có free token, không lặp lại kết quả cũ.
+    Cơ chế trạng thái (scan_state.json):
+    - `seen_urls`: loại bỏ URL đã xử lý để không quét lại trang cũ (mặc định).
+      Dùng --no-dedup để TẮT cơ chế này — AI đọc lại nội dung mới nhất của trang.
+    - `used_keywords`: xoay vòng keyword qua pool (khi không truyền -k).
+    - `providers`: tích luỹ provider tìm được — provider tìm lại được CẬP NHẬT
+      info (model mới, description) thay vì bỏ qua hoàn toàn.
+    - `run_history`: timestamp từng lần scan để phân biệt các lần quét.
 
     Kết quả nên verify (--verify) trước khi tin dùng.
     """
@@ -560,17 +640,26 @@ def discover_web(
             timeout=timeout,
             mode=mode,
             max_pages=pages,
-            exclude_urls=state.seen_urls,
+            deep=deep_search,
+            # --no-dedup: không loại URL đã xem → quét lại cả trang cũ,
+            # AI đọc lại nội dung mới nhất (đúng ý "tìm sâu, chính xác")
+            exclude_urls=None if no_dedup else state.seen_urls,
             on_results=_mark_seen,
         )
     except Exception as e:
         console.print(f"[red]✗ Lỗi deep search:[/red] {e}")
         sys.exit(1)
 
-    # Gộp provider mới vào kho tích luỹ (loại trùng với lần chạy trước)
+    # Gộp provider mới vào kho tích luỹ (loại trùng với lần chạy trước);
+    # provider tìm lại được CẬP NHẬT info (model mới...) thay vì bỏ qua
     added = state.merge_providers(found)
+    updated = state.last_merge_updated
     # Đánh dấu keyword đã dùng để lần sau xoay vòng sang từ khoá khác
     state.used_keywords.update(k.lower() for k in fresh_keywords)
+    # Ghi lịch sử lần scan (timestamp) vào trạng thái — phân biệt các lần quét
+    run_entry = state.record_run(
+        keywords=fresh_keywords, added=len(added), updated=len(updated), mode=mode
+    )
 
     if added:
         console.print(
@@ -578,11 +667,23 @@ def discover_web(
             f"(tổng tích luỹ: [bold]{len(state.providers)}[/bold]):\n"
         )
         _print_provider_table(added, show_all_models=True)
+    elif updated:
+        console.print(
+            f"\n[green]✓[/green] Không có provider mới nhưng [bold]{len(updated)}[/bold] "
+            f"provider đã biết được CẬP NHẬT info (model/description mới):\n"
+        )
+        _print_provider_table(updated, show_all_models=True)
     else:
         console.print(
             "[yellow]⚠ Lần này chưa tìm thấy provider mới nào "
-            "(mọi kết quả đều trùng hoặc đã xử lý) — lần chạy sau sẽ xoay sang keyword khác.[/yellow]"
+            "(mọi kết quả đều trùng hoặc đã xử lý).[/yellow] "
+            "[dim]Gợi ý: chạy lại với --no-dedup để quét lại cả trang cũ "
+            "(AI đọc nội dung mới nhất), hoặc để trống -k để xoay sang keyword khác.[/dim]"
         )
+    console.print(
+        f"[dim]Lần scan này: +{run_entry['new_providers']} mới, "
+        f"~{run_entry['updated_providers']} cập nhật (lúc {run_entry['run_at']})[/dim]"
+    )
 
     if verify and added:
         console.print("[dim]Đang kiểm tra các endpoint web-discovered...[/dim]")

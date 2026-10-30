@@ -111,6 +111,81 @@ class TestListCommand:
         assert "active" in result.output
 
 
+class TestListFromAccumulated:
+    """`list --from <file>` — xem kho provider TÍCH LUỸY từ discover-web."""
+
+    def test_from_web_providers_file(self, runner, tmp_path):
+
+        data = {
+            "providers": [
+                {"name": "Accum1", "base_url": "https://api.accum1.ai/v1", "tags": []},
+                {"name": "Accum2", "base_url": "https://api.accum2.ai/v1", "tags": []},
+            ]
+        }
+        f = tmp_path / "web_providers.json"
+        f.write_text(json.dumps(data), encoding="utf-8")
+        result = runner.invoke(cli, ["list", "--from", str(f)])
+        assert result.exit_code == 0
+        assert "2 provider" in result.output
+        assert "Accum1" in result.output
+        assert "Accum2" in result.output
+
+    def test_from_scan_state_file(self, runner, tmp_path):
+        """Đọc được cả file scan_state.json (cùng schema key 'providers')."""
+
+        data = {
+            "version": 2,
+            "seen_urls": ["https://a.com"],
+            "used_keywords": ["kw"],
+            "providers": [
+                {"name": "StateProv", "base_url": "https://api.state.ai/v1", "tags": []}
+            ],
+        }
+        f = tmp_path / "scan_state.json"
+        f.write_text(json.dumps(data), encoding="utf-8")
+        result = runner.invoke(cli, ["list", "--from", str(f)])
+        assert result.exit_code == 0
+        assert "StateProv" in result.output
+
+    def test_from_missing_file_exits_1(self, runner, tmp_path):
+        result = runner.invoke(
+            cli, ["list", "--from", str(tmp_path / "nope.json")]
+        )
+        assert result.exit_code == 1
+        assert "Không tìm thấy file" in result.output
+
+    def test_from_corrupted_file_exits_1(self, runner, tmp_path):
+        f = tmp_path / "broken.json"
+        f.write_text("{broken", encoding="utf-8")
+        result = runner.invoke(cli, ["list", "--from", str(f)])
+        assert result.exit_code == 1
+        assert "lỗi" in result.output
+
+    def test_from_with_verify_and_output(self, runner, monkeypatch, tmp_path):
+        """--from kết hợp --verify và --output vẫn hoạt động bình thường."""
+        import src.cli.main as m
+
+        data = {"providers": [{"name": "Accum1", "base_url": "https://api.accum1.ai/v1"}]}
+        f = tmp_path / "web_providers.json"
+        f.write_text(json.dumps(data), encoding="utf-8")
+
+        def fake_verify(providers, progress_callback=None):
+            return providers
+
+        monkeypatch.setattr(m, "_verify_with_progress", fake_verify)
+        out = tmp_path / "out.json"
+        result = runner.invoke(cli, ["list", "--from", str(f), "--verify", "-o", str(out)])
+        assert result.exit_code == 0
+        assert out.exists()
+
+    def test_default_list_still_uses_registry(self, runner):
+        """Không truyền --from → hành vi cũ: registry cứng."""
+        result = runner.invoke(cli, ["list"])
+        assert result.exit_code == 0
+        # Registry có Groq — web-discovered (Accum1...) không được xuất hiện
+        assert "Groq" in result.output
+
+
 class TestCheckCommand:
     def test_check_not_found_exits_1(self, runner):
         result = runner.invoke(cli, ["check", "--provider", "nonexistent-xyz"])

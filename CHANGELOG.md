@@ -4,6 +4,70 @@ Tất cả thay đổi quan trọng của project được ghi nhận trong file
 Format dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning theo [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### Added
+- **`list --from <file>`** — xem kho provider TÍCH LUỸY từ discover-web bằng
+  lệnh chuẩn (thay vì mở file JSON thủ công):
+  `docker compose run --rm app list --from data/web_providers.json`.
+  Đọc được cả `web_providers.json`, `scan_state.json`, `discovered.json`
+  (cùng schema key `providers`); kết hợp được `--verify`, `--format`,
+  `--tag`, `--output` như list thường. File thiếu/sai → lỗi rõ ràng + exit 1.
+
+## [1.9.0] — 2026-10-31
+
+### Added
+- **Nguồn shared-key community pool mở rộng** (`search_shared_keys`, nguồn `shared`):
+  - **Crown bansos** (`crown.ai.id/bansos`): scrape trang phát key free của
+    cộng đồng Indonesia — trích xuất mọi endpoint API `/v1` trong HTML.
+  - **masb.web.id** (`ai.masb.web.id`): trang cộng đồng Indonesia chia sẻ
+    key/API free — scrape generic, loại chính trang ra khỏi kết quả.
+  - Kết quả shared không bị cắt cụt theo `max_results` của search nữa
+    (chặn trên 50) — tránh mất provider khi thêm nguồn mới.
+- **Nguồn social** (`--sources social`): tìm bài đăng free LLM API trên
+  **X/Twitter, Threads, Instagram** qua Google index (`site:` scope) — dùng
+  Google Custom Search khi có key, DuckDuckGo html fallback khi không có.
+  1 nền tảng lỗi → các nền tảng khác vẫn chạy; dedupe URL giữa các nền tảng.
+- **AI deep crawl 2 cấp** (`--deep-search`, mặc định BẬT): fetch trang kết
+  quả cấp 1 → rút link con đáng follow (chứa hint `free/api/key/bansos/
+  gratis/harga...` hoặc cùng domain) → fetch cấp 2 để AI đọc thêm. Tổng số
+  trang vẫn bị chặn bởi `--pages` — sâu hơn nhưng không unbounded. Link
+  social/blocked và link ngoài không có hint không bị follow.
+
+### Changed
+- **`discover-web` mặc định quét cả nguồn social + shared mở rộng** —
+  `AVAILABLE_SOURCES` giờ gồm: `duckduckgo, github, google, hackernews,
+  reddit, shared, social`.
+
+## [1.8.1] — 2026-10-30
+
+### Added
+- **Nguồn Google cho `discover-web`** (`--sources google`, alias `g`):
+  - **Google Custom Search JSON API** khi `.env` có `GOOGLE_API_KEY` +
+    `GOOGLE_CSE_ID` — web index THẬT của Google, kết quả đáng tin nhất
+    (free 100 query/ngày; hướng dẫn lấy key trong `.env.example`).
+  - **Fallback Google News RSS** (public, không cần key) khi chưa cấu hình
+    Custom Search hoặc CSE lỗi — parse XML thuần, không thêm dependency.
+  - CSE trả rỗng/lỗi → tự chuyển tầng RSS, không crash (graceful).
+- **`discover-web` mặc định dùng `--mode ai`**: không truyền `--mode` giờ là
+  `ai` — LLM đọc NỘI DUNG trang thật để trích xuất provider + model free
+  (chính xác hơn heuristic regex). AI chưa cấu hình hoặc lỗi → tự fallback
+  về heuristic như trước, không crash.
+- **Cờ `--no-dedup` cho `discover-web`**: tắt loại URL đã xem — quét lại cả
+  trang cũ (kể cả cùng keyword cũ) để AI đọc nội dung MỚI NHẤT. Dùng khi
+  muốn đào sâu thay vì chỉ khai thác trang mới.
+- **`ScanState.record_run` + `run_history`**: mỗi lần scan ghi 1 entry
+  timestamp (mode, keywords, số provider mới/cập nhật) vào
+  `scan_state.json` (state version 2, load được file v1 cũ).
+- **`ScanState.merge_providers` cập nhật provider đã có**: provider tìm lại
+  (cùng base_url/name) được refresh info — models, description, website,
+  tags — thay vì bị bỏ qua hoàn toàn; status verify cũ được giữ nguyên.
+  Danh sách provider được cập nhật nằm ở `state.last_merge_updated`.
+
+### Changed
+- **`discover-web` hiển thị rõ kết quả lần scan**: provider MỚI in riêng;
+  khi không có mới nhưng có provider được cập nhật info → in bảng cập nhật;
+  khi rỗng → gợi ý `--no-dedup` / xoay keyword. Cuối lần chạy in dòng tóm
+  tắt `Lần scan này: +N mới, ~M cập nhật (timestamp)`.
+
 ## [1.8.0] — 2026-10-30
 
 ### Added

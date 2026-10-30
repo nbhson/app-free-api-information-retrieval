@@ -158,6 +158,97 @@ def collect_page_contexts(
     return contexts
 
 
+# Link con đáng follow khi deep crawl: chứa dấu hiệu API/provider/free-key,
+# HOẶC là link nội bộ cùng domain (trang chi tiết của chính site đó)
+_INTERESTING_LINK_RE = re.compile(
+    r'href="(https?://[^"]+)"', re.IGNORECASE
+)
+_LINK_HINT_RE = re.compile(
+    r"(free|api|key|token|bansos|gratis|tier|provider|llm|chat|doc|docs|"
+    r"v1|pricing|harga|promo|register|daftar)",
+    re.IGNORECASE,
+)
+
+
+def _extract_interesting_links(page_url: str, page_text: str, limit: int = 8) -> list[str]:
+    """
+    Rút link con đáng follow từ 1 trang đã fetch (cấp 2 của deep crawl):
+    - Ưu tiên link chứa từ khoá free/api/key/bansos/harga... (trang Indo hay
+      dùng 'gratis', 'daftar', 'harga')
+    - Cùng domain với trang gốc (trang con chính thức) — link ngoài chỉ giữ
+      khi chứa hint mạnh
+    - Bỏ social/blocked domain
+    """
+    try:
+        base_host = urlparse(page_url).hostname or ""
+    except ValueError:
+        return []
+    links: list[str] = []
+    seen: set[str] = set()
+    for match in _INTERESTING_LINK_RE.finditer(page_text):
+        link = match.group(1)
+        if link.lower() in seen or _is_blocked(link):
+            continue
+        try:
+            host = urlparse(link).hostname or ""
+        except ValueError:
+            continue
+        if not host:
+            continue
+        same_domain = host.lower().removeprefix("www.") == base_host.lower().removeprefix(
+            "www."
+        )
+        has_hint = bool(_LINK_HINT_RE.search(link))
+        if not (same_domain or has_hint):
+            continue
+        if same_domain and not has_hint and len(links) >= limit - 2:
+            # Link nội bộ không hint chỉ giữ chỗ cuối (ưu tiên link có hint)
+            continue
+        seen.add(link.lower())
+        links.append(link)
+        if len(links) >= limit:
+            break
+    return links
+
+
+def collect_page_contexts_deep(
+    results: list, max_pages: int = 5, timeout: float = 15.0, max_depth: int = 2
+) -> list[tuple[str, str]]:
+    """
+    Deep crawl: fetch trang cấp 1, rồi RÚT LINK CON đáng follow từ nội dung
+    trang và fetch tiếp (tối đa `max_depth` cấp). Tổng số trang vẫn bị chặn
+    bởi `max_pages` — deep hơn nhưng không nổ unbounded.
+
+    Dùng cho discover-web khi AI được cấu hình: AI đọc được cả trang chi tiết
+    (vd: trang bansos con của crown.ai.id, trang share key của masb.web.id).
+    """
+    contexts: list[tuple[str, str]] = []
+    seen_urls: set[str] = set()
+    # Hàng đợi (url, depth) — BFS
+    queue: list[tuple[str, int]] = []
+    for r in results:
+        if not _is_blocked(r.url):
+            queue.append((r.url, 1))
+
+    while queue and len(contexts) < max_pages:
+        url, depth = queue.pop(0)
+        if url.lower() in seen_urls:
+            continue
+        seen_urls.add(url.lower())
+        text = fetch_page_text(url, timeout)
+        if not text:
+            continue
+        contexts.append((url, text))
+        # Rút link con cho cấp tiếp theo
+        if depth < max_depth:
+            for link in _extract_interesting_links(url, text):
+                if len(contexts) + len(queue) >= max_pages * 2:
+                    break
+                if link.lower() not in seen_urls:
+                    queue.append((link, depth + 1))
+    return contexts
+
+
 # ---------------------------------------------------------------------------
 # AI extraction — LLM đọc nội dung web THẬT (khác discover-ai chỉ hỏi trí nhớ)
 # ---------------------------------------------------------------------------

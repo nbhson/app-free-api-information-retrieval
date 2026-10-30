@@ -65,6 +65,7 @@ PLATFORM_SCOPES: dict[str, str] = {
     "reddit": "site:reddit.com",
     "hackernews": "site:news.ycombinator.com",
     "duckduckgo": "",
+    "google": "",
     "github": "site:github.com",
 }
 
