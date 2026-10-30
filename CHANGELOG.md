@@ -4,6 +4,36 @@ Tất cả thay đổi quan trọng của project được ghi nhận trong file
 Format dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning theo [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] — 2026-10-30
+
+### Changed
+- **Nâng cấp toàn bộ dependencies floors** (theo versions thực tế đang test):
+  `httpx>=0.28`, `click>=8.2`, `rich>=13.9`, `pydantic>=2.12`,
+  `pydantic-settings>=2.10`, `python-dotenv>=1.2`, `fastapi>=0.115`,
+  `uvicorn>=0.30`, `pyyaml>=6.0.3`; dev: `pytest>=8.3`, `pytest-asyncio>=1.0`,
+  `pytest-cov>=6.0`, `ruff>=0.17`.
+- **Thêm `mypy` + `types-PyYAML` vào dev dependencies** — trước đây mypy chỉ cài
+  thủ công trong CI, không khai báo trong `pyproject.toml`/`requirements-dev.txt`.
+- **Pre-commit hooks nâng cấp**: `ruff-pre-commit` v0.6.9 → v0.17.3 (hook id
+  `ruff` đổi thành `ruff-check` theo convention mới), `pre-commit-hooks`
+  v4.6.0 → v6.0.0, `mirrors-mypy` v1.11.2 → v2.4.1.
+- **CI nâng cấp**: `actions/checkout@v5`, `actions/setup-python@v6`, thêm
+  Python 3.14 vào test matrix; job typecheck cài qua `requirements-dev.txt`
+  thay vì pip install thủ công.
+
+### Refactor
+- **`discover-ai` dùng lại `dedupe_providers()`** có sẵn trong
+  `deep_search.py` thay cho logic dedup inline lặp lại (cùng quy tắc
+  base_url/name, không phân biệt hoa thường).
+- **Gom pattern "lưu output + in thông báo" thành `_save_and_report()`** —
+  trước đây lặp ở 5 lệnh CLI (`list`, `update`, `discover-ai`,
+  `discover-live`, `discover-web`).
+- **`discover-ai --verify` dùng Rich progress bar** giống `list --verify` /
+  `discover-web --verify` (trước đây chạy `asyncio.run` im lặng, không có
+  progress).
+- **`ProviderList.model_post_init`**: đổi tham số `__context` (bị name-mangling
+  của Python thành `_Provider__context`) thành `_context: object` rõ ràng.
+
 ## [1.6.0] — 2026-10-30
 
 ### Added

@@ -30,7 +30,7 @@ from src.discovery import KNOWN_PROVIDERS, get_provider_by_name, get_providers_b
 from src.discovery.ai_agent import AIDiscoveryError, discover_with_ai
 from src.discovery.live import LiveDiscoveryError, discover_live
 from src.discovery.websearch.backends import AVAILABLE_SOURCES, parse_sources
-from src.discovery.websearch.deep_search import run_deep_search
+from src.discovery.websearch.deep_search import dedupe_providers, run_deep_search
 from src.discovery.websearch.keywords import parse_keywords
 from src.logging_config import get_logger, setup_logging
 from src.models import Provider, ProviderStatus
@@ -115,6 +115,14 @@ def _save_output(provider_list, output: str) -> str:
     return save_to_json(provider_list, output)
 
 
+def _save_and_report(provider_list, output: str | None) -> None:
+    """Lưu ProviderList ra file (nếu có --output) và in thông báo đường dẫn."""
+    if not output:
+        return
+    path = _save_output(provider_list, output)
+    console.print(f"[green]✓[/green] Đã lưu vào [bold]{path}[/bold]")
+
+
 def _print_provider_table(providers, show_all_models: bool = False) -> None:
     table = Table(box=box.ROUNDED, show_lines=False, title="Free LLM Providers")
     table.add_column("Provider", style="cyan", no_wrap=True)
@@ -194,10 +202,7 @@ def list_cmd(fmt, output, verify, show_all_models, tag, no_auth, verbose):
 
     # Lưu ra file (nếu có --output) — phải làm TRƯỚC khi exit: khi có provider
     # chết (exit code 1 cho CI/hooks), dữ liệu đã verify vẫn được lưu đầy đủ.
-    if output:
-        provider_list = aggregate_providers(providers)
-        path = _save_output(provider_list, output)
-        console.print(f"[green]✓[/green] Đã lưu vào [bold]{path}[/bold]")
+    _save_and_report(aggregate_providers(providers), output)
 
     if inactive:
         logger.warning("Có %d provider không hoạt động", len(inactive))
@@ -360,8 +365,7 @@ def update(output):
         _record_history(p)
 
     provider_list = aggregate_providers(providers)
-    path = _save_output(provider_list, output)
-    console.print(f"[green]✓[/green] Đã cập nhật và lưu vào [bold]{path}[/bold]")
+    _save_and_report(provider_list, output)
 
 
 @cli.command("discover-ai")
@@ -384,14 +388,8 @@ def discover_ai(output, verify, show):
 
     # Deduplication với registry hiện tại — bỏ provider đã biết (trùng URL hoặc tên)
     if found:
-        existing_urls = {p.base_url.lower() for p in KNOWN_PROVIDERS}
-        existing_names = {p.name.lower() for p in KNOWN_PROVIDERS}
         original_count = len(found)
-        found = [
-            p
-            for p in found
-            if p.base_url.lower() not in existing_urls and p.name.lower() not in existing_names
-        ]
+        found = dedupe_providers(found, existing=list(KNOWN_PROVIDERS))
         if original_count > len(found):
             console.print(
                 f"[dim]Đã lọc {original_count - len(found)} provider trùng lặp với registry[/dim]"
@@ -402,12 +400,10 @@ def discover_ai(output, verify, show):
 
     if verify and found:
         console.print("[dim]Đang kiểm tra các endpoint AI tìm thấy...[/dim]")
-        found = asyncio.run(verify_all_providers(found))
+        found = _verify_with_progress(found)
 
-    if output and found:
-        provider_list = aggregate_providers(found)
-        path = _save_output(provider_list, output)
-        console.print(f"[green]✓[/green] Đã lưu vào [bold]{path}[/bold]")
+    if found:
+        _save_and_report(aggregate_providers(found), output)
 
     # Lưu cả khi rỗng để người dùng biết
     if not found:
@@ -439,10 +435,7 @@ def discover_live_cmd(output, show_all_models):
 
     _print_provider_table([p], show_all_models=show_all_models)
 
-    if output:
-        provider_list = aggregate_providers([p])
-        path = _save_output(provider_list, output)
-        console.print(f"[green]✓[/green] Đã lưu vào [bold]{path}[/bold]")
+    _save_and_report(aggregate_providers([p]), output)
 
 
 @cli.command("discover-web")
@@ -530,10 +523,8 @@ def discover_web(keywords, sources, max_results, mode, pages, verify, timeout, o
         console.print("[dim]Đang kiểm tra các endpoint web-discovered...[/dim]")
         found = _verify_with_progress(found)
 
-    if output and found:
-        provider_list = aggregate_providers(found)
-        path = _save_output(provider_list, output)
-        console.print(f"[green]✓[/green] Đã lưu vào [bold]{path}[/bold]")
+    if found:
+        _save_and_report(aggregate_providers(found), output)
 
 
 @cli.command("health")

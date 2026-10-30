@@ -75,5 +75,5 @@ class ProviderList(BaseModel):
     version: str = Field(default_factory=lambda: __version__)
     total_count: int = Field(0)
 
-    def model_post_init(self, __context):
+    def model_post_init(self, _context: object) -> None:
         self.total_count = len(self.providers)
