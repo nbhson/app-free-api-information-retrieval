@@ -164,7 +164,8 @@ def collect_page_contexts(
 
 AI_EXTRACT_SYSTEM_PROMPT = """Bạn là chuyên gia nghiên cứu LLM API providers.
 Dưới đây là nội dung TRẢ VỀ THẬT TỪ INTERNET (search results + trang web).
-Nhiệm vụ: trích xuất các nhà cung cấp API LLM MIỄN PHÍ (free tier) được đề cập.
+Nhiệm vụ QUAN TRỌNG NHẤT: tìm ra các trang web CÓ FREE TOKEN / API key miễn phí
+để gọi LLM, và trích xuất các model MIỄN PHÍ của chúng.
 
 Chỉ trả về JSON thuần (không markdown, không giải thích), schema:
 
@@ -174,10 +175,9 @@ Chỉ trả về JSON thuần (không markdown, không giải thích), schema:
       "name": "Tên provider",
       "base_url": "https://... endpoint API chính thức",
       "website": "https://... trang chủ",
-      "description": "Mô tả ngắn",
+      "description": "Mô tả ngắn + CÁCH LẤY free token (đăng ký, key công khai, pool cộng đồng...)",
       "api_style": "openai | anthropic | custom",
       "auth_required": true/false,
-      "rate_limit": "giới hạn free tier",
       "tags": ["tag1", "tag2"],
       "free_models": [{"id": "model-id", "name": "Tên", "context_length": 8192}]
     }
@@ -185,6 +185,10 @@ Chỉ trả về JSON thuần (không markdown, không giải thích), schema:
 }
 
 Lưu ý:
+- ƯU TIÊN TUYỆT ĐỐI: những trang cho free token / free tier / key cộng đồng.
+  Không cần quan tâm tốc độ hay giới hạn tốc độ (rate limit) — bỏ qua thông tin đó.
+- free_models là bắt buộc phải cố gắng trích xuất: liệt kê MỌI model miễn phí
+  được đề cập (kèm context_length nếu có). Không thấy model nào → mảng rỗng.
 - CHỈ trích xuất provider được đề cập THẬT trong nội dung — tuyệt đối không bịa
   từ trí nhớ của bạn. Không thấy provider nào → trả về {"providers": []}.
 - base_url phải có trong nội dung hoặc suy ra trực tiếp từ domain được đề cập."""

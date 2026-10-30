@@ -1,5 +1,7 @@
 """Tests cho src.discovery.websearch (mock HTTP, không gọi mạng thật)."""
 
+import json
+
 import httpx
 import pytest
 
@@ -682,15 +684,18 @@ class TestFetchPageTextJson:
 
 
 class TestDiscoverWebCLI:
-    def test_requires_no_key_and_reports_empty(self, runner, monkeypatch):
+    def _state_opt(self, tmp_path):
+        return ["--state", str(tmp_path / "scan_state.json")]
+
+    def test_requires_no_key_and_reports_empty(self, runner, monkeypatch, tmp_path):
         import src.cli.main as m
 
         monkeypatch.setattr(m, "run_deep_search", lambda **kw: [])
-        result = runner.invoke(m.cli, ["discover-web"])
+        result = runner.invoke(m.cli, ["discover-web", *self._state_opt(tmp_path)])
         assert result.exit_code == 0
-        assert "Không tìm thấy provider mới" in result.output
+        assert "chưa tìm thấy provider mới nào" in result.output
 
-    def test_shows_found_providers(self, runner, monkeypatch):
+    def test_shows_found_providers(self, runner, monkeypatch, tmp_path):
         import src.cli.main as m
 
         found = [
@@ -701,11 +706,13 @@ class TestDiscoverWebCLI:
             )
         ]
         monkeypatch.setattr(m, "run_deep_search", lambda **kw: found)
-        result = runner.invoke(m.cli, ["discover-web", "--mode", "heuristic"])
+        result = runner.invoke(
+            m.cli, ["discover-web", "--mode", "heuristic", *self._state_opt(tmp_path)]
+        )
         assert result.exit_code == 0
         assert "BrandNew" in result.output
 
-    def test_custom_keywords_passed_to_pipeline(self, runner, monkeypatch):
+    def test_custom_keywords_passed_to_pipeline(self, runner, monkeypatch, tmp_path):
         import src.cli.main as m
 
         captured = {}
@@ -715,11 +722,13 @@ class TestDiscoverWebCLI:
             return []
 
         monkeypatch.setattr(m, "run_deep_search", fake_run)
-        runner.invoke(m.cli, ["discover-web", "-k", "free llm api, cheap api"])
+        runner.invoke(
+            m.cli, ["discover-web", "-k", "free llm api, cheap api", *self._state_opt(tmp_path)]
+        )
         assert "free llm api" in captured["keywords"]
         assert "cheap api" in captured["keywords"]
 
-    def test_sources_filter(self, runner, monkeypatch):
+    def test_sources_filter(self, runner, monkeypatch, tmp_path):
         import src.cli.main as m
 
         captured = {}
@@ -729,17 +738,17 @@ class TestDiscoverWebCLI:
             return []
 
         monkeypatch.setattr(m, "run_deep_search", fake_run)
-        runner.invoke(m.cli, ["discover-web", "--sources", "reddit,hn"])
+        runner.invoke(m.cli, ["discover-web", "--sources", "reddit,hn", *self._state_opt(tmp_path)])
         assert captured["sources"] == ["reddit", "hackernews"]
 
-    def test_pipeline_error_exits_1(self, runner, monkeypatch):
+    def test_pipeline_error_exits_1(self, runner, monkeypatch, tmp_path):
         import src.cli.main as m
 
         def boom(**kw):
             raise RuntimeError("network down")
 
         monkeypatch.setattr(m, "run_deep_search", boom)
-        result = runner.invoke(m.cli, ["discover-web"])
+        result = runner.invoke(m.cli, ["discover-web", *self._state_opt(tmp_path)])
         assert result.exit_code == 1
         assert "Lỗi deep search" in result.output
 
@@ -749,9 +758,102 @@ class TestDiscoverWebCLI:
         found = [Provider(name="BrandNew", base_url="https://api.brandnew.ai/v1")]
         monkeypatch.setattr(m, "run_deep_search", lambda **kw: found)
         out = tmp_path / "web_providers.json"
-        result = runner.invoke(m.cli, ["discover-web", "--output", str(out)])
+        result = runner.invoke(
+            m.cli, ["discover-web", "--output", str(out), *self._state_opt(tmp_path)]
+        )
         assert result.exit_code == 0
         assert out.exists()
+
+    def test_resume_accumulates_providers(self, runner, monkeypatch, tmp_path):
+        """Lần chạy 2 (resume) phải gộp provider của lần chạy 1 + tìm thêm cái mới."""
+        import src.cli.main as m
+
+        state_file = tmp_path / "scan_state.json"
+        run1 = [Provider(name="First", base_url="https://api.first.ai/v1")]
+        run2 = [Provider(name="Second", base_url="https://api.second.ai/v1")]
+        monkeypatch.setattr(m, "run_deep_search", lambda **kw: run1)
+        runner.invoke(m.cli, ["discover-web", "--state", str(state_file)])
+        monkeypatch.setattr(m, "run_deep_search", lambda **kw: run2)
+        out = tmp_path / "out.json"
+        result = runner.invoke(m.cli, ["discover-web", "--state", str(state_file), "-o", str(out)])
+        assert result.exit_code == 0
+        assert "Second" in result.output
+
+        data = json.loads(out.read_text())
+        names = [p["name"] for p in data["providers"]]
+        assert "First" in names and "Second" in names  # tích luỹ cả 2 lần chạy
+
+    def test_resume_skips_used_keywords(self, runner, monkeypatch, tmp_path):
+        """Lần chạy 2 (resume, không -k) phải xoay sang keyword CHƯA dùng."""
+        import src.cli.main as m
+
+        state_file = tmp_path / "scan_state.json"
+        captured_runs = []
+
+        def fake_run(**kw):
+            captured_runs.append(list(kw["keywords"]))
+            return []
+
+        monkeypatch.setattr(m, "run_deep_search", fake_run)
+        runner.invoke(m.cli, ["discover-web", "--state", str(state_file)])
+        runner.invoke(m.cli, ["discover-web", "--state", str(state_file)])
+
+        assert len(captured_runs) == 2
+        kw1, kw2 = set(captured_runs[0]), set(captured_runs[1])
+        assert kw1 and kw2
+        assert kw1.isdisjoint(kw2)  # không lặp lại keyword đã dùng
+
+    def test_fresh_ignores_state(self, runner, monkeypatch, tmp_path):
+        """--fresh: bỏ trạng thái cũ, dùng lại từ đầu pool keyword."""
+        import src.cli.main as m
+
+        state_file = tmp_path / "scan_state.json"
+        captured_runs = []
+
+        def fake_run(**kw):
+            captured_runs.append(list(kw["keywords"]))
+            return []
+
+        monkeypatch.setattr(m, "run_deep_search", fake_run)
+        runner.invoke(m.cli, ["discover-web", "--state", str(state_file)])
+        runner.invoke(m.cli, ["discover-web", "--fresh", "--state", str(state_file)])
+
+        assert set(captured_runs[0]) == set(captured_runs[1])
+
+    def test_state_saved_after_run(self, runner, monkeypatch, tmp_path):
+        """Sau mỗi lần quét, file trạng thái phải được lưu (kể cả URL đã xử lý)."""
+        import src.cli.main as m
+
+        state_file = tmp_path / "scan_state.json"
+        found = [Provider(name="BrandNew", base_url="https://api.brandnew.ai/v1")]
+
+        def fake_run(**kw):
+            # Mô phỏng pipeline thật: gọi on_results với các URL kết quả search
+            if kw.get("on_results"):
+                kw["on_results"](
+                    [SearchResult(title="t", url="https://example.com/post-1", source="reddit")]
+                )
+            return found
+
+        monkeypatch.setattr(m, "run_deep_search", fake_run)
+        result = runner.invoke(m.cli, ["discover-web", "--state", str(state_file)])
+        assert result.exit_code == 0
+        assert state_file.exists()
+        data = json.loads(state_file.read_text())
+        assert data["total_providers"] == 1
+        assert data["seen_urls"] == ["https://example.com/post-1"]
+
+    def test_corrupted_state_resets_gracefully(self, runner, monkeypatch, tmp_path):
+        """File trạng thái hỏng → reset về rỗng, pipeline vẫn chạy bình thường."""
+        import src.cli.main as m
+
+        state_file = tmp_path / "scan_state.json"
+        state_file.write_text("{corrupted json!", encoding="utf-8")
+        found = [Provider(name="BrandNew", base_url="https://api.brandnew.ai/v1")]
+        monkeypatch.setattr(m, "run_deep_search", lambda **kw: found)
+        result = runner.invoke(m.cli, ["discover-web", "--state", str(state_file)])
+        assert result.exit_code == 0
+        assert "BrandNew" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -841,3 +943,112 @@ class TestSharedKeysSource:
         crown = [p for p in providers if "crown.ai.id" in p.base_url]
         assert len(crown) == 1
         assert crown[0].base_url == "https://crown.ai.id/v1"
+
+
+# ---------------------------------------------------------------------------
+# ScanState — trạng thái quét giữa các lần chạy
+# ---------------------------------------------------------------------------
+
+
+class TestScanState:
+    def test_roundtrip(self, tmp_path):
+        from src.storage.scan_state import ScanState
+
+        path = tmp_path / "state.json"
+        state = ScanState(path)
+        state.mark_seen_urls(["https://a.com/1", "https://a.com/1"])
+        state.used_keywords.update(["Free LLM api"])
+        state.merge_providers([Provider(name="P1", base_url="https://api.p1.ai/v1")])
+        state.save()
+
+        loaded = ScanState.load(path)
+        assert loaded.seen_urls == {"https://a.com/1"}
+        assert loaded.used_keywords == {"free llm api"}
+        assert [p.name for p in loaded.providers] == ["P1"]
+
+    def test_load_missing_file_returns_empty(self, tmp_path):
+        from src.storage.scan_state import ScanState
+
+        state = ScanState.load(tmp_path / "nope.json")
+        assert state.seen_urls == set()
+        assert state.providers == []
+
+    def test_load_corrupted_file_resets(self, tmp_path):
+        from src.storage.scan_state import ScanState
+
+        path = tmp_path / "state.json"
+        path.write_text("{broken", encoding="utf-8")
+        state = ScanState.load(path)
+        assert state.seen_urls == set()
+        assert state.providers == []
+
+    def test_filter_new_urls(self, tmp_path):
+        from src.discovery.websearch.backends import SearchResult
+        from src.storage.scan_state import ScanState
+
+        state = ScanState(tmp_path / "state.json")
+        state.mark_seen_urls(["https://old.com/a"])
+        items = [
+            SearchResult(title="old", url="https://old.com/A"),  # trùng (case-insensitive)
+            SearchResult(title="new", url="https://new.com/b"),
+        ]
+        fresh = state.filter_new_urls(items)
+        assert [r.url for r in fresh] == ["https://new.com/b"]
+
+    def test_merge_providers_dedupes(self, tmp_path):
+        from src.storage.scan_state import ScanState
+
+        state = ScanState(tmp_path / "state.json")
+        first = [Provider(name="P1", base_url="https://api.p1.ai/v1")]
+        assert len(state.merge_providers(first)) == 1
+        # Trùng URL → không thêm
+        assert (
+            len(state.merge_providers([Provider(name="X", base_url="https://API.P1.AI/v1")])) == 0
+        )
+        # Trùng tên → không thêm
+        assert (
+            len(state.merge_providers([Provider(name="p1", base_url="https://other.ai/v1")])) == 0
+        )
+        # Mới → thêm
+        assert (
+            len(state.merge_providers([Provider(name="P2", base_url="https://api.p2.ai/v1")])) == 1
+        )
+        assert len(state.providers) == 2
+
+    def test_pick_fresh_keywords_rotation_and_batch(self, tmp_path):
+        from src.storage.scan_state import ScanState
+
+        state = ScanState(tmp_path / "state.json")
+        pool = [f"kw-{i}" for i in range(20)]
+        batch1 = state.pick_fresh_keywords(pool, [])
+        assert batch1 == pool[:8]
+        state.used_keywords.update(batch1)
+        batch2 = state.pick_fresh_keywords(pool, [])
+        assert batch2 == pool[8:16]
+        assert set(batch1).isdisjoint(batch2)
+
+    def test_pick_fresh_keywords_cycle_restart(self, tmp_path):
+        from src.storage.scan_state import ScanState
+
+        state = ScanState(tmp_path / "state.json")
+        pool = ["a", "b"]
+        state.used_keywords.update(pool)
+        # Pool cạn → bắt đầu chu kỳ mới từ đầu pool
+        assert state.pick_fresh_keywords(pool, []) == ["a", "b"]
+
+    def test_pick_fresh_keywords_user_override(self, tmp_path):
+        from src.storage.scan_state import ScanState
+
+        state = ScanState(tmp_path / "state.json")
+        assert state.pick_fresh_keywords(["pool-1"], ["user kw"]) == ["user kw"]
+
+    def test_context_manager_saves_on_exception(self, tmp_path):
+        from src.storage.scan_state import ScanState
+
+        path = tmp_path / "state.json"
+        with pytest.raises(RuntimeError):
+            with ScanState(path) as state:
+                state.mark_seen_urls(["https://x.com/1"])
+                raise RuntimeError("crash giữa chừng")
+        # Dù crash, trạng thái vẫn được lưu
+        assert ScanState.load(path).seen_urls == {"https://x.com/1"}

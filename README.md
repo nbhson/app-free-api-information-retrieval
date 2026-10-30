@@ -268,6 +268,35 @@ kết quả. Đây là cách tìm provider mới nổi chưa có trong registry:
 ./venv/bin/python run.py discover-web --mode ai --pages 10
 ```
 
+### ⏯️ Lưu trạng thái & tiếp tục giữa các lần chạy (resume)
+
+Mỗi lần `discover-web` quét xong đều **lưu trạng thái** vào `data/scan_state.json`
+(URL đã xử lý, keyword đã dùng, provider đã tìm thấy). Lần chạy sau **tự tiếp tục
+từ nơi đã dừng**: bỏ qua URL cũ, xoay vòng sang keyword chưa dùng, và gộp kết quả
+mới vào kho tích luỹ — mục tiêu là mỗi lần quét đều mang về **trang web MỚI có
+free token**, không lặp lại kết quả cũ:
+
+```bash
+# Lần 1: quét + lưu trạng thái (mặc định --resume đã bật)
+./venv/bin/python run.py discover-web -o data/discovered.json
+
+# Lần 2+: tự tiếp tục — keyword mới, URL mới, kết quả TÍCH LUỴY (cũ + mới)
+./venv/bin/python run.py discover-web -o data/discovered.json
+
+# Kiểm soát tốc độ xoay keyword / quét lại từ đầu
+./venv/bin/python run.py discover-web --kw-batch 12   # 12 keyword mới mỗi lần chạy
+./venv/bin/python run.py discover-web --fresh         # bỏ trạng thái cũ, quét lại từ đầu
+```
+
+File `data/scan_state.json` (đổi đường dẫn qua env `SCAN_STATE_PATH` hoặc
+`--state`) gồm: `seen_urls`, `used_keywords`, `providers` tích luỹ kèm
+**danh sách model free** của từng provider. File hỏng/mất → tự reset, pipeline
+vẫn chạy bình thường.
+
+> 🐳 **Docker:** state nằm trong `data/` — volume `$(pwd)/data:/app/data` đã có
+> sẵn trong các ví dụ ở trên giữ nguyên trạng thái giữa các lần
+> `docker compose run app discover-web ...`, nên resume hoạt động như local.
+
 **Docker:**
 
 ```bash

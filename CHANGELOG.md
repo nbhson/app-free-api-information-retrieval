@@ -4,6 +4,39 @@ Tất cả thay đổi quan trọng của project được ghi nhận trong file
 Format dựa trên [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning theo [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] — 2026-10-30
+
+### Added
+- **Scan state — lưu trạng thái quét & tiếp tục giữa các lần chạy** (`discover-web`):
+  - Mỗi lần quét xong lưu `data/scan_state.json` (config qua env `SCAN_STATE_PATH`
+    hoặc cờ `--state`): URL kết quả search đã xử lý, keyword đã dùng, provider
+    tích luỹ kèm danh sách model free.
+  - Lần chạy sau tự **resume** (mặc định `--resume`): bỏ qua URL đã xử lý,
+    gộp provider mới vào kho tích luỹ, xuất kết quả TÍCH LUỸY (cũ + mới) ra
+    `--output`. Cờ `--fresh` để quét lại từ đầu.
+  - Module mới `src/storage/scan_state.py` (`ScanState`): load/save atomic,
+    file hỏng/mất tự reset không crash, dùng được như context manager (crash
+    giữa chừng vẫn lưu tiến trình).
+- **Xoay vòng keyword**: pool mới `KEYWORD_POOL` (~39 từ khoá EN/VI/community
+  sharing) — mỗi lần chạy không truyền `-k` sẽ lấy tối đa `--kw-batch` (default 8)
+  từ khoá CHƯA dùng, đảm bảo mỗi lần quét khai thác vùng internet mới thay vì
+  lặp lại kết quả cũ. Pool cạn → tự bắt đầu chu kỳ mới.
+- **`run_deep_search` nhận `exclude_urls` + `on_results`**: loại URL đã xử lý
+  lần trước khỏi kết quả search; callback để caller đánh dấu trạng thái.
+
+### Changed
+- **Ưu tiên free token, bỏ emphasis rate limit**: prompt AI extraction
+  (`extractor.py`, `ai_agent.py`) viết lại — nhiệm vụ số 1 là tìm trang có
+  free token / key cộng đồng, `free_models` là bắt buộc trích xuất, không còn
+  yêu cầu trích xuất rate limit/speed.
+- **`discover-web --output` giờ xuất kho tích luỹ** (provider cũ + mới) thay vì
+  chỉ kết quả lần chạy hiện tại; lưu state xảy ra TRƯỚC khi verify/exit nên
+  tiến trình không mất khi verify lỗi.
+
+### Fixed
+- **Test isolation cho scan state**: autouse fixture `_tmp_scan_state` trỏ
+  `SCAN_STATE_PATH` vào tmp_path — test không đụng `data/scan_state.json` thật.
+
 ## [1.7.0] — 2026-10-30
 
 ### Changed

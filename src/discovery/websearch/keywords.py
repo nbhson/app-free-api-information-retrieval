@@ -28,6 +28,38 @@ DEFAULT_KEYWORDS: list[str] = [
     "bansos ai gratis",
 ]
 
+# Keyword pool mở rộng — dùng cho cơ chế xoay vòng giữa các lần chạy:
+# mỗi lần `discover-web` (không truyền -k) sẽ chọn từ khoá CHƯA dùng trong
+# pool này (xem ScanState.pick_fresh_keywords), đảm bảo mỗi lần quét tìm ra
+# trang web MỚI có free token thay vì lặp lại kết quả cũ.
+KEYWORD_POOL: list[str] = [
+    *DEFAULT_KEYWORDS,
+    "free llm api {year} no credit card",
+    "free llm api github awesome",
+    "free inference api open source models",
+    "free token llm api community",
+    "free ai api key generator",
+    "openai compatible endpoint free models",
+    "free llm api tier comparison",
+    "free chat completions api",
+    "free llm api discord community",
+    "free api key llm telegram",
+    "gratis llm api endpoint",
+    "api llm miễn phí 2026",
+    "api key miễn phí dùng thử",
+    "free llm playground api",
+    "free gpu inference api",
+    "free vision llm api",
+    "free embedding api",
+    "free ai gateway llm",
+    "llm api free quota signup",
+    "free llm api list site:github.com",
+    "free api key sharing forum",
+    "free llm api forum thread",
+    "openrouter free models alternative",
+    "free llm api no key required",
+]
+
 # Keyword scoping theo nền tảng — gắn site: khi query để tìm sâu hơn trên từng nguồn
 PLATFORM_SCOPES: dict[str, str] = {
     "reddit": "site:reddit.com",

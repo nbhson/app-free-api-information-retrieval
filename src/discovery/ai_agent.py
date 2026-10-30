@@ -28,10 +28,9 @@ Chỉ trả về JSON thuần (không markdown, không giải thích), theo sche
       "name": "Tên provider",
       "base_url": "https://... (endpoint API chính thức)",
       "website": "https://... (trang chủ)",
-      "description": "Mô tả ngắn",
+      "description": "Mô tả ngắn + cách lấy free token (đăng ký, key công khai, pool cộng đồng...)",
       "api_style": "openai | anthropic | custom",
       "auth_required": true/false,
-      "rate_limit": "mô tả giới hạn free tier",
       "tags": ["tag1", "tag2"],
       "free_models": [
         {"id": "model-id", "name": "Tên model", "context_length": 8192}
@@ -41,9 +40,11 @@ Chỉ trả về JSON thuần (không markdown, không giải thích), theo sche
 }
 
 Lưu ý:
-- Chỉ liệt kê provider THỰC SỰ tồn tại và có free tier, không bịa.
+- Chỉ liệt kê provider THỰC SỰ tồn tại và có free tier / free token, không bịa.
+- KHÔNG cần thông tin tốc độ hay giới hạn tốc độ (rate limit) — bỏ qua.
+- Ưu tiên các trang cho free token dễ lấy (không cần thẻ tín dụng, key cộng đồng).
 - base_url phải là endpoint API thật (ưu tiên OpenAI-compatible /v1).
-- free_models chỉ chứa model miễn phí thật sự.
+- free_models là bắt buộc: liệt kê MỌI model miễn phí thật sự của provider.
 - Trả về 5-15 provider đáng tin cậy nhất."""
 
 

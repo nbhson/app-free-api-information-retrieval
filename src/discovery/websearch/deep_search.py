@@ -8,6 +8,8 @@ Kết quả vẫn phải qua pipeline verify (`list --verify`) để lọc provi
 web search chỉ là điểm xuất phát, không phải kết luận cuối cùng.
 """
 
+from collections.abc import Callable
+
 from rich.console import Console
 
 from src.config import AIConfig, get_ai_config
@@ -60,6 +62,8 @@ def run_deep_search(
     mode: str = "heuristic",  # "heuristic" | "ai"
     ai_config: AIConfig | None = None,
     max_pages: int = 5,
+    exclude_urls: set[str] | None = None,
+    on_results: Callable[[list[SearchResult]], None] | None = None,
 ) -> list[Provider]:
     """
     Chạy deep search đầy đủ: search → extract → dedupe với registry.
@@ -72,13 +76,26 @@ def run_deep_search(
         mode: 'heuristic' (không cần key) hoặc 'ai' (đọc nội dung trang thật).
         ai_config: Config AI (bắt buộc khi mode='ai').
         max_pages: Số trang tối đa fetch cho AI mode.
+        exclude_urls: URL đã xử lý ở lần chạy trước — bị loại khỏi kết quả
+            để mỗi lần quét chỉ mang về trang web MỚI.
+        on_results: Callback nhận danh sách kết quả search ĐÃ lọc (sau khi
+            loại exclude_urls) — dùng để caller đánh dấu trạng thái đã xử lý.
 
     Returns:
         Danh sách provider mới (đã loại trùng với registry), tag 'web-discovered'.
     """
     console.print("[bold]Đang search trên các nguồn:[/bold] " + ", ".join(sources or ["all"]))
     results: list[SearchResult] = run_search(keywords, sources, max_results, timeout)
-    console.print(f"[dim]Tổng cộng {len(results)} kết quả thô từ internet[/dim]")
+    before = len(results)
+    if exclude_urls:
+        excluded = {u.lower() for u in exclude_urls}
+        results = [r for r in results if r.url.lower() not in excluded]
+    console.print(
+        f"[dim]Tổng cộng {len(results)} kết quả mới "
+        f"(bỏ {before - len(results)} URL đã xử lý lần trước)[/dim]"
+    )
+    if on_results:
+        on_results(results)
 
     if mode == "ai":
         cfg = ai_config or get_ai_config()

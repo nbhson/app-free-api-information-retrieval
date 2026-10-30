@@ -15,6 +15,13 @@ def _tmp_history_db(tmp_path, monkeypatch):
     get_storage_config.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def _tmp_scan_state(tmp_path, monkeypatch):
+    """Trỏ file trạng thái quét vào tmp_path cho mọi test — không đụng data/scan_state.json thật."""
+    monkeypatch.setenv("SCAN_STATE_PATH", str(tmp_path / "scan_state.json"))
+    yield
+
+
 @pytest.fixture
 def sample_provider() -> Provider:
     return Provider(

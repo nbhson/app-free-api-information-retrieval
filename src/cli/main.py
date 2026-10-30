@@ -31,7 +31,7 @@ from src.discovery.ai_agent import AIDiscoveryError, discover_with_ai
 from src.discovery.live import LiveDiscoveryError, discover_live
 from src.discovery.websearch.backends import AVAILABLE_SOURCES, parse_sources
 from src.discovery.websearch.deep_search import dedupe_providers, run_deep_search
-from src.discovery.websearch.keywords import parse_keywords
+from src.discovery.websearch.keywords import expand_keywords, parse_keywords
 from src.logging_config import get_logger, setup_logging
 from src.models import Provider, ProviderStatus
 from src.notifications import detect_status_changes, send_webhook_notification
@@ -443,7 +443,7 @@ def discover_live_cmd(output, show_all_models):
     "--keywords",
     "-k",
     multiple=True,
-    help="Từ khoá tìm kiếm (lặp lại --keywords hoặc dùng 'a, b, c'). Trống = dùng preset.",
+    help="Từ khoá tìm kiếm (lặp lại --keywords hoặc dùng 'a, b, c'). Trống = xoay vòng từ keyword pool.",
 )
 @click.option(
     "--sources",
@@ -468,63 +468,136 @@ def discover_live_cmd(output, show_all_models):
 @click.option(
     "--pages", default=5, show_default=True, type=int, help="Số trang fetch tối đa cho AI mode"
 )
-@click.option("--output", "-o", type=str, default=None, help="Lưu kết quả ra file JSON")
+@click.option("--output", "-o", type=str, default=None, help="Lưu kết quả TÍCH LUỴY ra file JSON")
 @click.option(
     "--verify", is_flag=True, default=False, help="Kiểm tra trạng thái các provider tìm thấy"
 )
 @click.option(
     "--timeout", default=15.0, show_default=True, type=float, help="Timeout mỗi HTTP request (giây)"
 )
-def discover_web(keywords, sources, max_results, mode, pages, verify, timeout, output):
+@click.option(
+    "--resume/--fresh",
+    default=True,
+    show_default=True,
+    help="Resume: đọc trạng thái lần chạy trước (URL đã xem, keyword đã dùng, provider đã tìm) "
+    "và tiếp tục tìm trang web MỚI. --fresh: quét lại từ đầu, bỏ qua trạng thái cũ.",
+)
+@click.option(
+    "--state",
+    "state_path",
+    type=str,
+    default=None,
+    help="Đường dẫn file trạng thái (mặc định: data/scan_state.json)",
+)
+@click.option(
+    "--kw-batch",
+    default=8,
+    show_default=True,
+    type=int,
+    help="Số keyword mới tối đa mỗi lần chạy (khi không truyền -k) — xoay vòng qua pool",
+)
+def discover_web(
+    keywords,
+    sources,
+    max_results,
+    mode,
+    pages,
+    verify,
+    timeout,
+    output,
+    resume,
+    state_path,
+    kw_batch,
+):
     """Deep Web Search — quét Reddit / Hacker News / DuckDuckGo / GitHub với keyword tùy ý.
 
     Tìm provider free TỪ NỘI DUNG INTERNET THẬT (không phải trí nhớ LLM):
     - mode heuristic: regex bắt endpoint /v1 trong kết quả search (không cần key)
     - mode ai: fetch nội dung trang thật, LLM trích xuất provider (cần .env)
 
+    Mỗi lần quét XONG đều LƯU TRẠNG THÁI (URL đã xử lý, keyword đã dùng,
+    provider đã tìm thấy) — lần chạy sau tự tiếp tục từ nơi đã dừng và
+    chỉ tìm trang web MỚI có free token, không lặp lại kết quả cũ.
+
     Kết quả nên verify (--verify) trước khi tin dùng.
     """
+    from src.discovery.websearch.keywords import KEYWORD_POOL
+    from src.storage.scan_state import ScanState
+
     kw_list = parse_keywords(keywords)
     srcs = parse_sources(sources)
 
+    state = ScanState.load(state_path) if resume else ScanState(state_path)
+    if resume and state.providers:
+        stats = state.stats()
+        console.print(
+            f"[dim]Resume: đã tích luỹ {stats['providers']} provider "
+            f"({stats['free_models']} model free), "
+            f"{stats['seen_urls']} URL đã xem, "
+            f"{stats['used_keywords']} keyword đã dùng"
+            + (f", lần chạy cuối: {stats['last_run_at']}" if stats["last_run_at"] else "")
+            + "[/dim]"
+        )
+
+    # Xoay vòng keyword: lần chạy không truyền -k sẽ lấy từ khoá CHƯA dùng,
+    # đảm bảo mỗi lần quét khai thác vùng internet mới thay vì lặp lại.
+    fresh_keywords = state.pick_fresh_keywords(
+        expand_keywords(KEYWORD_POOL), kw_list if keywords else [], batch_size=kw_batch
+    )
     if keywords:
         console.print("[dim]Keywords:[/dim] " + " | ".join(kw_list))
     else:
-        console.print("[dim]Keywords: preset mặc định[/dim]")
+        console.print("[dim]Keywords (xoay vòng, chưa dùng):[/dim] " + " | ".join(fresh_keywords))
+
+    def _mark_seen(results: list) -> None:
+        state.mark_seen_urls([r.url for r in results])
 
     try:
         found = run_deep_search(
-            keywords=kw_list,
+            keywords=fresh_keywords,
             sources=srcs,
             max_results=max_results,
             timeout=timeout,
             mode=mode,
             max_pages=pages,
+            exclude_urls=state.seen_urls,
+            on_results=_mark_seen,
         )
     except Exception as e:
         console.print(f"[red]✗ Lỗi deep search:[/red] {e}")
         sys.exit(1)
 
-    if not found:
-        console.print(
-            "[yellow]⚠ Không tìm thấy provider mới nào (mọi kết quả đều trùng registry hoặc rỗng).[/yellow]"
-        )
-        console.print(
-            "[dim]Gợi ý: thêm keyword khác: discover-web -k 'free llm api 2026, cheap inference api'[/dim]"
-        )
-        return
+    # Gộp provider mới vào kho tích luỹ (loại trùng với lần chạy trước)
+    added = state.merge_providers(found)
+    # Đánh dấu keyword đã dùng để lần sau xoay vòng sang từ khoá khác
+    state.used_keywords.update(k.lower() for k in fresh_keywords)
 
-    console.print(
-        f"\n[green]✓[/green] Deep search tìm thấy [bold]{len(found)}[/bold] provider mới:\n"
-    )
-    _print_provider_table(found, show_all_models=True)
+    if added:
+        console.print(
+            f"\n[green]✓[/green] Deep search tìm thấy [bold]{len(added)}[/bold] provider MỚI "
+            f"(tổng tích luỹ: [bold]{len(state.providers)}[/bold]):\n"
+        )
+        _print_provider_table(added, show_all_models=True)
+    else:
+        console.print(
+            "[yellow]⚠ Lần này chưa tìm thấy provider mới nào "
+            "(mọi kết quả đều trùng hoặc đã xử lý) — lần chạy sau sẽ xoay sang keyword khác.[/yellow]"
+        )
 
-    if verify and found:
+    if verify and added:
         console.print("[dim]Đang kiểm tra các endpoint web-discovered...[/dim]")
-        found = _verify_with_progress(found)
+        verified = _verify_with_progress(added)
+        # Cập nhật trạng thái verify vào kho tích luỹ (giữ provider cũ, thay bản mới)
+        by_key = {p.base_url.lower(): p for p in verified}
+        state.providers = [by_key.get(p.base_url.lower(), p) for p in state.providers]
 
-    if found:
-        _save_and_report(aggregate_providers(found), output)
+    # Lưu trạng thái TRƯỚC KHI thoát — kể cả khi verify lỗi, tiến trình không mất
+    state.save()
+    console.print(f"[green]✓[/green] Đã lưu trạng thái quét vào [bold]{state.path}[/bold]")
+
+    # Xuất file kết quả TÍCH LUỴY (cũ + mới) — ưu tiên kho trong state
+    if output:
+        _save_and_report(aggregate_providers(state.providers), output)
 
 
 @cli.command("health")

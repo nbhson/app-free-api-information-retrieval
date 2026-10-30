@@ -16,6 +16,8 @@ venv/
 # Output data (optional, giữ data/providers.json làm sample)
 # data/*.json
 data/*.db
+data/scan_state.json
+data/discovered.json
 out.json
 
 # Coverage artifacts
