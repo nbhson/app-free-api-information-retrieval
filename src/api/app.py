@@ -2,7 +2,10 @@
 REST API — Query provider data từ app khác.
 
 Chạy server:
-    python run.py serve --host 0.0.0.0 --port 8000
+    python run.py serve --port 8000
+
+    Mặc định bind 127.0.0.1 (an toàn). Bind ra interface public (vd 0.0.0.0)
+    yêu cầu env API_KEYS được set, hoặc flag --insecure-yes-i-know.
 
 Endpoints:
     GET /                                  — thông tin API

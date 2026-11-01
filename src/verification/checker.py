@@ -6,6 +6,10 @@ Có concurrency limit (semaphore) và retry với exponential backoff cho:
 - HTTP 429 (rate limit): retry với backoff, hết lượt → RATE_LIMITED
 - HTTP 5xx: retry với backoff, hết lượt → INACTIVE
 - Các lỗi khác: log và trả về UNKNOWN
+
+SSRF guard: base_url có thể đến từ nguồn AI/web extraction tùy ý — URL được
+validate (scheme http/https, chặn IP private/loopback/metadata) ở mỗi hop,
+redirect theo tay tối đa MAX_REDIRECTS (xem src/verification/ssrf.py).
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from pydantic import ValidationError
 
 from src.__version__ import __version__
 from src.models import Model, Provider, ProviderStatus
+from src.verification.ssrf import SSRFBlockedError, validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +40,9 @@ class SmokeTestError(Exception):
 
 # Giới hạn số request song song — tránh trigger rate limit hàng loạt
 MAX_CONCURRENCY = 5
+
+# Số redirect tối đa khi verify (mỗi hop được re-validate SSRF guard)
+MAX_REDIRECTS = 3
 
 # Retry cho lỗi tạm thời (timeout, connect, 429, 5xx)
 MAX_RETRIES = 2
@@ -61,6 +69,30 @@ def _build_headers(api_key: str | None = None) -> dict[str, str]:
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     return headers
+
+
+async def _get_guarded(
+    client: httpx.AsyncClient, url: str, headers: dict[str, str]
+) -> httpx.Response:
+    """
+    GET với SSRF guard: validate scheme/hostname/IP ở MỖI hop, follow redirect
+    thủ công (tối đa MAX_REDIRECTS) thay vì follow_redirects=True.
+
+    base_url có thể đến từ nguồn AI/web extraction tùy ý — re-validate từng hop
+    chống redirect trick + thu hẹp cửa sổ DNS rebinding (TOCTOU).
+    """
+    current = url
+    for hop in range(MAX_REDIRECTS + 1):
+        # Resolve/validate ngoài event loop (getaddrinfo là blocking call)
+        await asyncio.to_thread(validate_url, current)
+        resp = await client.get(current, headers=headers, follow_redirects=False)
+        if resp.is_redirect and resp.has_redirect_location:
+            if hop == MAX_REDIRECTS:
+                raise SSRFBlockedError(f"Quá nhiều redirects (> {MAX_REDIRECTS})")
+            current = str(httpx.URL(current).join(resp.headers["location"]))
+            continue
+        return resp
+    raise SSRFBlockedError(f"Quá nhiều redirects (> {MAX_REDIRECTS})")  # pragma: no cover
 
 
 def _parse_models_payload(payload: object) -> list[Model]:
@@ -128,10 +160,10 @@ async def verify_provider(
     url = _models_url(result.base_url)
     headers = _build_headers(api_key)
 
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
         for attempt in range(retries + 1):
             try:
-                resp = await client.get(url, headers=headers)
+                resp = await _get_guarded(client, url, headers)
 
                 if resp.status_code == 200:
                     result.status = ProviderStatus.ACTIVE

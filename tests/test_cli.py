@@ -378,6 +378,65 @@ class TestServeCommand:
         assert "8000" in result.output
 
 
+class TestServeSafeBind:
+    """serve phải từ chối bind public khi API chưa có auth (API_KEYS trống)."""
+
+    @pytest.fixture(autouse=True)
+    def _no_api_keys(self, monkeypatch):
+        """Đảm bảo API_KEYS trống / cache config được reset quanh mỗi test."""
+        monkeypatch.setenv("API_KEYS", "")
+        from src.config import get_api_config
+
+        get_api_config.cache_clear()
+        yield
+        get_api_config.cache_clear()
+
+    def test_localhost_bind_allowed(self):
+        from src.cli.main import ensure_safe_bind
+
+        for host in ("127.0.0.1", "localhost", "::1"):
+            ensure_safe_bind(host)  # không raise
+
+    def test_public_bind_without_keys_refused(self):
+        from src.cli.main import ensure_safe_bind
+
+        with pytest.raises(SystemExit) as exc:
+            ensure_safe_bind("0.0.0.0")
+        assert exc.value.code == 1
+
+    def test_public_bind_with_api_keys_allowed(self, monkeypatch):
+        monkeypatch.setenv("API_KEYS", "k1,k2")
+        from src.config import get_api_config
+
+        get_api_config.cache_clear()
+        from src.cli.main import ensure_safe_bind
+
+        ensure_safe_bind("0.0.0.0")  # có auth → cho phép
+        get_api_config.cache_clear()
+
+    def test_public_bind_with_insecure_flag_allowed(self):
+        from src.cli.main import ensure_safe_bind
+
+        ensure_safe_bind("0.0.0.0", allow_insecure=True)  # chủ động expose → cho phép
+
+    def test_cli_refuses_public_host_without_keys(self, runner):
+        """CLI-level: serve --host 0.0.0.0 không API_KEYS → exit 1 + thông báo rõ."""
+        result = runner.invoke(cli, ["serve", "--host", "0.0.0.0", "--port", "8000"])
+        assert result.exit_code == 1
+        assert "Từ chối khởi động" in result.output
+        assert "insecure-yes-i-know" in result.output
+
+    def test_cli_accepts_insecure_flag(self, runner, monkeypatch):
+        """--insecure-yes-i-know bỏ qua check — không được phép tới bước uvicorn.run."""
+        called = {}
+        monkeypatch.setattr("uvicorn.run", lambda app, **kw: called.update(kw))
+        result = runner.invoke(
+            cli, ["serve", "--host", "0.0.0.0", "--port", "8000", "--insecure-yes-i-know"]
+        )
+        assert result.exit_code == 0
+        assert called.get("host") == "0.0.0.0"
+
+
 class TestVerboseFlag:
     def test_list_verbose_flag_accepted(self, runner):
         result = runner.invoke(cli, ["list", "--verbose"])

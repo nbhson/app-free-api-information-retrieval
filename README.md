@@ -138,6 +138,12 @@ docker compose logs -f api     # xem log
 docker compose down api        # dừng
 ```
 
+> ⚠️ **Cảnh báo bảo mật:** `--host 0.0.0.0` (hoặc bất kỳ interface nào không phải
+> localhost) sẽ **từ chối khởi động** khi env `API_KEYS` trống — API sẽ public
+> trong mạng của bạn. Chạy bằng cách set `API_KEYS="key1,key2"` trong `.env`,
+> hoặc nếu chủ động expose không auth thì thêm flag `--insecure-yes-i-know`.
+> Chi tiết: phần [REST API](#-rest-api-query-từ-app-khác).
+
 - API: `http://localhost:8000` — Swagger UI: `http://localhost:8000/docs`
 - `restart: unless-stopped` — tự khởi động lại khi Docker host reboot.
 
@@ -469,9 +475,15 @@ Payload mẫu:
 Chạy API server (FastAPI + uvicorn):
 
 ```bash
-./venv/bin/python run.py serve --host 0.0.0.0 --port 8000
+./venv/bin/python run.py serve --port 8000
 # Swagger UI: http://localhost:8000/docs
 ```
+
+> ⚠️ **Bind an toàn:** mặc định server bind `127.0.0.1` — chỉ truy cập được từ
+> máy local. Muốn bind ra interface public (vd `--host 0.0.0.0`) thì **bắt buộc**
+> set env `API_KEYS` (comma-separated) để bật auth; nếu không, CLI sẽ từ chối
+> khởi động. Trường hợp chủ động expose API không auth, thêm flag
+> `--insecure-yes-i-know` (không khuyến khích). Xem phần Auth bên dưới.
 
 Endpoints:
 

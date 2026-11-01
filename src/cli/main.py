@@ -745,14 +745,54 @@ def health(output):
                 console.print(f"    • {w}")
 
 
+# Host an toàn để bind mà không cần API key (chỉ truy cập được từ máy local)
+_SAFE_BIND_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
+
+
+def ensure_safe_bind(host: str, allow_insecure: bool = False) -> None:
+    """
+    Chặn bind ra interface public khi API chưa có auth.
+
+    Nếu host KHÔNG phải localhost/127.0.0.1/::1 và API_KEYS trống (API public),
+    từ chối khởi động — trừ khi caller chủ động dùng --insecure-yes-i-know.
+    Raise SystemExit để CLI thoát với mã lỗi và thông báo rõ ràng.
+    """
+    from src.config import get_api_config
+
+    if host.strip().lower() in _SAFE_BIND_HOSTS or allow_insecure:
+        return
+    if get_api_config().get_api_keys():
+        return  # đã có auth → bind public được chấp nhận
+    console.print(
+        f"[red]✗ Từ chối khởi động:[/red] API chưa có auth (API_KEYS trống) nhưng "
+        f"bind ra interface công khai ('{host}') — mọi người trong mạng đều gọi được API.\n\n"
+        "Chọn một trong các cách sau:\n"
+        "  1. Set env API_KEYS (comma-separated) rồi chạy lại: API_KEYS='k1,k2' ...\n"
+        "  2. Bind localhost: serve --host 127.0.0.1 --port 8000\n"
+        "  3. Cố tình expose: thêm flag --insecure-yes-i-know"
+    )
+    sys.exit(1)
+
+
 @cli.command("serve")
 @click.option("--host", default="127.0.0.1", show_default=True, help="Host để bind API server")
 @click.option("--port", default=8000, show_default=True, type=int, help="Port để bind API server")
-def serve(host, port):
+@click.option(
+    "--insecure-yes-i-know",
+    is_flag=True,
+    default=False,
+    help="Cho phép bind public không auth (bỏ qua kiểm tra an toàn — KHÔNG khuyến khích)",
+)
+def serve(host, port, insecure_yes_i_know):
     """Chạy REST API server để query provider từ app khác.
 
     Swagger UI: http://{host}:{port}/docs
+
+    Mặc định bind 127.0.0.1. Bind ra interface public (vd 0.0.0.0) yêu cầu
+    env API_KEYS được set, hoặc flag --insecure-yes-i-know.
     """
+    ensure_safe_bind(host, allow_insecure=insecure_yes_i_know)
+
     try:
         import uvicorn
 

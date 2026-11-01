@@ -12,6 +12,8 @@ services:
 
   # REST API server — query provider từ app khác
   # Chạy: docker compose up api
+  # ⚠️ Bind 0.0.0.0 YÊU CẦU API_KEYS được set trong .env (auth bắt buộc khi
+  # bind public). Không set API_KEYS → server từ chối khởi động (xem README).
   api:
     build: .
     image: free-llm-provider-discovery:latest

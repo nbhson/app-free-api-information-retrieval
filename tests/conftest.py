@@ -22,6 +22,19 @@ def _tmp_scan_state(tmp_path, monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _fake_dns(monkeypatch):
+    """
+    SSRF guard không resolve DNS thật trong test (test chạy offline, không network):
+    mọi hostname thông thường → IP public giả lập. Test SSRF riêng monkeypatch
+    lại `src.verification.ssrf.resolve_hostname` để giả lập private IP.
+    """
+    from src.verification import ssrf
+
+    monkeypatch.setattr(ssrf, "resolve_hostname", lambda hostname: ["93.184.216.34"])
+    yield
+
+
 @pytest.fixture
 def sample_provider() -> Provider:
     return Provider(
