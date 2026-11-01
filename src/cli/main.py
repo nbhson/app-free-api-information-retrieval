@@ -29,7 +29,13 @@ from src.config import get_ai_config, get_webhook_config
 from src.discovery import KNOWN_PROVIDERS, get_provider_by_name, get_providers_by_tag
 from src.discovery.ai_agent import AIDiscoveryError, discover_with_ai
 from src.discovery.live import LiveDiscoveryError, discover_live
-from src.discovery.websearch.backends import AVAILABLE_SOURCES, parse_sources
+from src.discovery.websearch.backends import (
+    AVAILABLE_SOURCES,
+    is_shared_opt_in,
+    parse_sources,
+    set_shared_opt_in,
+    warn_shared_source,
+)
 from src.discovery.websearch.deep_search import dedupe_providers, run_deep_search
 from src.discovery.websearch.keywords import expand_keywords, parse_keywords
 from src.logging_config import get_logger, setup_logging
@@ -494,10 +500,26 @@ def discover_live_cmd(output, show_all_models):
     help="Từ khoá tìm kiếm (lặp lại --keywords hoặc dùng 'a, b, c'). Trống = xoay vòng từ keyword pool.",
 )
 @click.option(
+    "--include-shared",
+    "include_shared",
+    is_flag=True,
+    default=False,
+    help=(
+        "OPT-IN: bật nguồn 'shared' (trang cộng đồng chia sẻ API key — "
+        "crown.ai.id/bansos, LMSpeed, masb.web.id). Mặc định TẮT vì nguồn này "
+        "vi phạm ToS của provider và tiềm ẩn rủi ro pháp lý — chỉ dùng cho "
+        "nghiên cứu bảo mật hoặc kiểm tra key của chính bạn. Cũng bật được "
+        "bằng env INCLUDE_SHARED=1."
+    ),
+)
+@click.option(
     "--sources",
     type=str,
     default=None,
-    help=f"Nguồn search, comma-separated ({', '.join(AVAILABLE_SOURCES)}). Mặc định: tất cả",
+    help=(
+        f"Nguồn search, comma-separated ({', '.join(AVAILABLE_SOURCES)}). "
+        "Mặc định: tất cả (TRỪ 'shared' — nguồn opt-in qua --include-shared)"
+    ),
 )
 @click.option(
     "--max-results",
@@ -572,6 +594,7 @@ def discover_live_cmd(output, show_all_models):
 def discover_web(
     keywords,
     sources,
+    include_shared,
     max_results,
     mode,
     pages,
@@ -605,7 +628,25 @@ def discover_web(
     from src.storage.scan_state import ScanState
 
     kw_list = parse_keywords(keywords)
+
+    # Nguồn 'shared' là OPT-IN ONLY: chỉ bật khi người dùng chủ động yêu cầu
+    # (flag --include-shared hoặc env INCLUDE_SHARED=1) — in cảnh báo ToS/pháp lý.
+    if include_shared:
+        set_shared_opt_in(True)
+
     srcs = parse_sources(sources)
+    # Nguồn 'shared' bị loại khi chưa opt-in — kể cả khi chạy với toàn bộ nguồn
+    # mặc định (loại im lặng; chỉ giải thích khi người dùng yêu cầu tường minh).
+    if "shared" in srcs and not is_shared_opt_in():
+        srcs = [s for s in srcs if s != "shared"]
+        if sources:
+            console.print(
+                "[yellow]⚠ Nguồn 'shared' bị TẮT: nguồn này opt-in only "
+                "(--include-shared hoặc INCLUDE_SHARED=1) vì scrape trang chia sẻ "
+                "API key cộng đồng — rủi ro vi phạm ToS của provider và rủi ro pháp lý.[/yellow]"
+            )
+    elif "shared" in srcs and is_shared_opt_in():
+        warn_shared_source()
 
     state = ScanState.load(state_path) if resume else ScanState(state_path)
     if resume and state.providers:

@@ -310,10 +310,10 @@ registry cứng:
 ## 🔎 Deep Web Search ("tìm ngẫu nhiên" provider mới từ internet)
 
 Lệnh `discover-web` search **trực tiếp các nguồn internet công khai** — Reddit,
-Hacker News, DuckDuckGo, GitHub, Google, X/Twitter + Threads + Instagram (social),
-các trang shared-key cộng đồng (crown.ai.id/bansos, ai.masb.web.id, LMSpeed) —
+Hacker News, DuckDuckGo, GitHub, Google, X/Twitter + Threads + Instagram (social) —
 với từ khoá tuỳ ý, rồi trích xuất provider từ kết quả. Đây là cách tìm provider
-mới nổi chưa có trong registry:
+mới nổi chưa có trong registry. (Nguồn `shared` — các trang chia sẻ API key
+cộng đồng — là **opt-in only**, xem cảnh báo ở mục bên dưới.)
 
 ```bash
 # ⭐ Tìm ngẫu nhiên — quét mọi nguồn, nhiều keyword, verify + lưu kết quả
@@ -329,7 +329,7 @@ mới nổi chưa có trong registry:
   --verify --output data/web_providers.json
 
 # Chỉ định nguồn cụ thể (mặc định: tất cả — duckduckgo, github, google,
-# hackernews, reddit, shared, social)
+# hackernews, reddit, social — TRỪ 'shared', nguồn opt-in qua --include-shared)
 ./venv/bin/python run.py discover-web --sources github,hackernews --max-results 5
 
 # Nguồn social — bài đăng free API trên X (Twitter), Threads, Instagram
@@ -385,8 +385,8 @@ docker compose run --rm app discover-web --no-dedup \
 > 💡 **Nguồn dữ liệu là internet thật** (API công khai của Reddit/HN/DDG/GitHub),
 > không phải trí nhớ AI — nhưng tỉ lệ tìm được provider mới phụ thuộc keyword.
 > Nếu báo "Không tìm thấy provider mới nào" (kết quả trùng registry hoặc không
-> trích xuất được endpoint), thử keyword khác hoặc dùng `--sources shared` bên
-> dưới. Reddit có thể bị chặn ở một số mạng — app tự bỏ qua nguồn lỗi, không crash.
+> trích xuất được endpoint), thử keyword khác hoặc xem nguồn `shared` opt-in
+> bên dưới. Reddit có thể bị chặn ở một số mạng — app tự bỏ qua nguồn lỗi, không crash.
 
 So sánh 4 chế độ discovery:
 
@@ -395,11 +395,23 @@ So sánh 4 chế độ discovery:
 | `list` | Registry cứng trong code (23 providers) | ❌ | Cũ nhất (theo lần curate) |
 | `discover-ai` | Trí nhớ của LLM | ✅ (AI key) | Cũ (training data) |
 | `discover-live` | **OpenRouter API trực tiếp** | ❌ | **Mới nhất** ✅ |
-| `discover-web` | **7 nguồn internet thật** (Reddit/HN/DDG/Google/social/shared/LMSpeed) | ❌ | **Mới nhất** ✅ |
+| `discover-web` | **6 nguồn internet thật** (Reddit/HN/DDG/Google/social) + `shared` opt-in | ❌ | **Mới nhất** ✅ |
 
-### Nguồn 'shared' — API key cộng đồng (bansos)
+### ⚠️ Nguồn 'shared' — OPT-IN ONLY, rủi ro ToS & pháp lý
 
-`discover-web --sources shared` query trực tiếp các trang chia sẻ key cộng đồng:
+Nguồn `shared` (các trang chia sẻ API key cộng đồng) **KHÔNG chạy theo mặc định**
+— kể cả khi bạn chạy `discover-web` với toàn bộ nguồn. Bạn phải chủ động bật:
+
+```bash
+# Cách 1: flag CLI
+./venv/bin/python run.py discover-web --include-shared -k "free api bansos gratis"
+
+# Cách 2: biến môi trường
+INCLUDE_SHARED=1 ./venv/bin/python run.py discover-web --sources shared
+```
+
+Khi bật, tool sẽ in **cảnh báo rõ ràng một lần** rồi mới query các trang:
+
 - **Crown AI status API** (`crown.ai.id/api/status`, JSON public) — pool sống/chết,
   model nào online hiện tại
 - **Crown bansos** (`crown.ai.id/bansos`) — trang phát key free của cộng đồng
@@ -408,6 +420,20 @@ So sánh 4 chế độ discovery:
   cộng đồng đang chia sẻ (Nightrouter, Agentrouter, ...)
 - **masb.web.id** (`ai.masb.web.id`) — trang cộng đồng Indonesia chia sẻ
   key/API free
+
+> 🚨 **Tại sao phải opt-in — rủi ro khi dùng nguồn này:**
+>
+> - **Vi phạm ToS của provider:** các key được cộng đồng chia sẻ hầu như luôn
+>   vi phạm Điều khoản dịch vụ của nhà cung cấp — dùng có thể bị chặn vĩnh viễn
+>   và provider có thể áp dụng biện pháp pháp lý.
+> - **Rủi ro pháp lý:** sử dụng API key thuộc sở hữu của người khác có thể cấu
+>   thành hành vi truy cập trái phép vào hệ thống máy tính.
+> - **Rủi ro bảo mật:** key công khai có thể bị theo dõi, ghi log, hoặc được
+>   dùng để chất độc dữ liệu đi qua request của bạn.
+>
+> ✅ **Khuyến nghị:** chỉ dùng nguồn này cho **mục đích nghiên cứu bảo mật**
+> (audit key lộ công khai, thông báo cho chủ sở hữu) hoặc **kiểm tra key do
+> chính bạn sở hữu**. Đừng dùng key chia sẻ làm hạ tầng sản xuất hay cá nhân.
 
 Registry cũng có sẵn 2 community pool Indonesia: **Crown AI** (`crown.ai.id/v1`,
 key miễn phí tại `/bansos`) và **free.ai.id** (không cần đăng ký).

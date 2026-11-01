@@ -304,6 +304,114 @@ class TestRunSearch:
 
 
 # ---------------------------------------------------------------------------
+# Nguồn 'shared' — OPT-IN ONLY (rủi ro ToS/pháp lý)
+# ---------------------------------------------------------------------------
+
+
+def _swap_backends(b, mapping):
+    """Swap SEARCH_BACKENDS tạm thời (khôi phục sau khi test xong)."""
+    saved = dict(b.SEARCH_BACKENDS)
+    b.SEARCH_BACKENDS.clear()
+    b.SEARCH_BACKENDS.update(mapping)
+    return saved
+
+
+def _restore_backends(b, saved):
+    b.SEARCH_BACKENDS.clear()
+    b.SEARCH_BACKENDS.update(saved)
+
+
+class TestSharedOptIn:
+    """Nguồn 'shared' không chạy khi không opt-in (--include-shared / INCLUDE_SHARED=1)."""
+
+    @pytest.fixture
+    def shared_env(self):
+        """SEARCH_BACKENDS chỉ còn 'reddit' + 'shared' — shared đếm số lần gọi."""
+        import src.discovery.websearch.backends as b
+
+        calls: list[str] = []
+
+        def reddit_backend(q, n, t):
+            return [SearchResult(title="R", url="https://reddit.com/r/x", source="reddit")]
+
+        def shared_backend(q, n, t):
+            calls.append(q)
+            return [
+                SearchResult(
+                    title="shared", url="https://pool.example.com/v1", source="shared_keys"
+                )
+            ]
+
+        saved = _swap_backends(b, {"reddit": reddit_backend, "shared": shared_backend})
+        yield calls
+        _restore_backends(b, saved)
+
+    def test_default_sources_exclude_shared(self, shared_env):
+        """Mặc định (sources=None): nguồn shared KHÔNG được gọi."""
+        run_search(["kw"], max_results=5, timeout=1.0)
+        assert shared_env == []  # backend shared không chạy
+
+    def test_explicit_shared_source_skipped_without_opt_in(self, shared_env, capsys):
+        """Yêu cầu tường minh --sources shared nhưng không opt-in → bị loại."""
+        results = run_search(["kw"], sources=["shared"], max_results=5, timeout=1.0)
+        assert results == []
+        assert shared_env == []
+        out = capsys.readouterr().out
+        assert "opt-in" in out
+        assert "INCLUDE_SHARED" in out
+
+    def test_default_run_does_not_print_shared_warning(self, shared_env, capsys):
+        """Chạy mặc định: shared bị loại IM LẶNG — không in notice lẫn cảnh báo ToS."""
+        run_search(["kw"], max_results=5, timeout=1.0)
+        out = capsys.readouterr().out
+        assert "CẢNH BÁO ToS" not in out
+        assert "opt-in" not in out
+
+    def test_flag_opt_in_runs_shared_with_warning(self, shared_env, capsys):
+        """Có opt-in (flag CLI): shared chạy + cảnh báo ToS in đúng một lần."""
+        import src.discovery.websearch.backends as b
+
+        b.set_shared_opt_in(True)
+        results = run_search(["kw"], sources=["shared"], max_results=5, timeout=1.0)
+        assert shared_env == ["kw"]
+        assert len(results) == 1
+        assert results[0].source == "shared_keys"
+        out = capsys.readouterr().out
+        assert "CẢNH BÁO ToS" in out
+        assert "Vi phạm Điều khoản dịch vụ" in out
+
+    def test_warning_printed_exactly_once(self, shared_env, capsys):
+        """Cảnh báo in ĐÚNG MỘT LẦN mỗi tiến trình, kể cả khi gọi run_search nhiều lần."""
+        import src.discovery.websearch.backends as b
+
+        b.set_shared_opt_in(True)
+        run_search(["kw"], sources=["shared"], timeout=1.0)
+        run_search(["kw"], sources=["shared"], timeout=1.0)
+        out = capsys.readouterr().out
+        assert out.count("CẢNH BÁO ToS") == 1
+
+    def test_env_opt_in_runs_shared(self, shared_env, monkeypatch):
+        """Env INCLUDE_SHARED=1 cũng bật nguồn shared."""
+        import src.discovery.websearch.backends as b
+
+        monkeypatch.setenv(b.SHARED_OPT_IN_ENV, "1")
+        results = run_search(["kw"], sources=["shared"], max_results=5, timeout=1.0)
+        assert shared_env == ["kw"]
+        assert len(results) == 1
+
+    def test_is_shared_opt_in_env_values(self, monkeypatch):
+        """Chỉ các giá trị truthy của env mới bật opt-in."""
+        import src.discovery.websearch.backends as b
+
+        for value in ("1", "true", "yes", "on"):
+            monkeypatch.setenv(b.SHARED_OPT_IN_ENV, value)
+            assert b.is_shared_opt_in() is True
+        for value in ("0", "false", "", "no"):
+            monkeypatch.setenv(b.SHARED_OPT_IN_ENV, value)
+            assert b.is_shared_opt_in() is False
+
+
+# ---------------------------------------------------------------------------
 # deep_search — dedupe + orchestration
 # ---------------------------------------------------------------------------
 
@@ -874,6 +982,74 @@ class TestDiscoverWebCLI:
         monkeypatch.setattr(m, "run_deep_search", fake_run)
         runner.invoke(m.cli, ["discover-web", "--sources", "reddit,hn", *self._state_opt(tmp_path)])
         assert captured["sources"] == ["reddit", "hackernews"]
+
+    def test_default_sources_exclude_shared(self, runner, monkeypatch, tmp_path):
+        """Mặc định discover-web KHÔNG chạy nguồn shared (opt-in only)."""
+        import src.cli.main as m
+
+        captured = {}
+
+        def fake_run(**kw):
+            captured.update(kw)
+            return []
+
+        monkeypatch.setattr(m, "run_deep_search", fake_run)
+        result = runner.invoke(m.cli, ["discover-web", *self._state_opt(tmp_path)])
+        assert result.exit_code == 0
+        assert "shared" not in captured["sources"]
+        assert "CẢNH BÁO ToS" not in result.output
+
+    def test_include_shared_flag_opts_in_and_warns(self, runner, monkeypatch, tmp_path):
+        """--include-shared: nguồn shared được bật + cảnh báo ToS/pháp lý in ra."""
+        import src.cli.main as m
+
+        captured = {}
+
+        def fake_run(**kw):
+            captured.update(kw)
+            return []
+
+        monkeypatch.setattr(m, "run_deep_search", fake_run)
+        result = runner.invoke(
+            m.cli, ["discover-web", "--include-shared", *self._state_opt(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert "shared" in captured["sources"]
+        assert "CẢNH BÁO ToS" in result.output
+
+    def test_include_shared_env_opts_in(self, runner, monkeypatch, tmp_path):
+        """Env INCLUDE_SHARED=1 cũng bật nguồn shared không cần flag."""
+        import src.cli.main as m
+
+        captured = {}
+
+        def fake_run(**kw):
+            captured.update(kw)
+            return []
+
+        monkeypatch.setattr(m, "run_deep_search", fake_run)
+        monkeypatch.setenv("INCLUDE_SHARED", "1")
+        result = runner.invoke(m.cli, ["discover-web", *self._state_opt(tmp_path)])
+        assert result.exit_code == 0
+        assert "shared" in captured["sources"]
+
+    def test_shared_requested_without_opt_in_is_dropped(self, runner, monkeypatch, tmp_path):
+        """--sources shared nhưng không opt-in → nguồn shared bị loại khỏi pipeline."""
+        import src.cli.main as m
+
+        captured = {}
+
+        def fake_run(**kw):
+            captured.update(kw)
+            return []
+
+        monkeypatch.setattr(m, "run_deep_search", fake_run)
+        result = runner.invoke(
+            m.cli, ["discover-web", "--sources", "reddit,shared", *self._state_opt(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert captured["sources"] == ["reddit"]
+        assert "opt-in" in result.output
 
     def test_pipeline_error_exits_1(self, runner, monkeypatch, tmp_path):
         import src.cli.main as m

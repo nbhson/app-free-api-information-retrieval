@@ -35,6 +35,20 @@ def _fake_dns(monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _shared_source_opt_out(monkeypatch):
+    """
+    Nguồn 'shared' (opt-in only) mặc định TẮT cho mọi test — không leak trạng thái
+    opt-in (flag CLI/env INCLUDE_SHARED) hay cờ "đã cảnh báo" giữa các test.
+    """
+    import src.discovery.websearch.backends as backends
+
+    monkeypatch.setattr(backends, "_shared_cli_opt_in", False)
+    monkeypatch.setattr(backends, "_shared_warning_shown", False)
+    monkeypatch.delenv(backends.SHARED_OPT_IN_ENV, raising=False)
+    yield
+
+
 @pytest.fixture
 def sample_provider() -> Provider:
     return Provider(

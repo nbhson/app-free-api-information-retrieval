@@ -5,6 +5,7 @@ Mỗi backend trả về list[SearchResult]. Lỗi network/schema KHÔNG BAO GI�
 backend ghi warning và trả về list rỗng (nguyên tắc graceful như webhook).
 """
 
+import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -385,6 +386,60 @@ def fetch_lmspeed_shared_keys(timeout: float = DEFAULT_TIMEOUT) -> list[SearchRe
     return results
 
 
+# ---------------------------------------------------------------------------
+# Opt-in guard cho nguồn 'shared' — OPT-IN ONLY (rủi ro ToS/pháp lý)
+#
+# Nguồn 'shared' scrape các trang cộng đồng chia sẻ API key — vi phạm ToS
+# của provider và tiềm ẩn rủi ro pháp lý. Vì vậy KHÔNG chạy theo mặc định:
+# người dùng phải chủ động bật bằng flag CLI (--include-shared) hoặc env
+# INCLUDE_SHARED=1. Khi chạy, cảnh báo được in ĐÚNG MỘT LẦN mỗi tiến trình.
+# ---------------------------------------------------------------------------
+
+SHARED_OPT_IN_ENV = "INCLUDE_SHARED"
+_SHARED_TRUTHY = frozenset({"1", "true", "yes", "on"})
+
+_shared_cli_opt_in = False
+_shared_warning_shown = False
+
+SHARED_SOURCE_WARNING = (
+    "⚠⚠⚠  NGUỒN 'shared' ĐÃ ĐƯỢC BẬT — CẢNH BÁO ToS & PHÁP LÝ  ⚠⚠⚠\n"
+    "Nguồn này scrape các trang cộng đồng chia sẻ API key (crown.ai.id, "
+    "lmspeed.net, ai.masb.web.id):\n"
+    "  • Vi phạm Điều khoản dịch vụ (ToS) của các provider — key chia sẻ "
+    "thường bị cấm sử dụng và có thể bị thu hồi/chặn bất cứ lúc nào.\n"
+    "  • Rủi ro pháp lý: sử dụng API key của người khác có thể cấu thành "
+    "truy cập trái phép vào hệ thống.\n"
+    "  • Hãy dùng CÓ TRÁCH NHIỆM: chỉ nên dùng cho mục đích nghiên cứu "
+    "bảo mật hoặc kiểm tra key do chính bạn sở hữu."
+)
+
+
+def is_shared_opt_in() -> bool:
+    """
+    Nguồn 'shared' có được bật không? True khi:
+    - flag CLI --include-shared đã set (qua `set_shared_opt_in(True)`), HOẶC
+    - env INCLUDE_SHARED có giá trị truthy ("1", "true", "yes", "on").
+    """
+    if _shared_cli_opt_in:
+        return True
+    return os.environ.get(SHARED_OPT_IN_ENV, "").strip().lower() in _SHARED_TRUTHY
+
+
+def set_shared_opt_in(enabled: bool) -> None:
+    """Set/tắt opt-in nguồn 'shared' từ flag CLI (trạng thái trong tiến trình)."""
+    global _shared_cli_opt_in
+    _shared_cli_opt_in = enabled
+
+
+def warn_shared_source() -> None:
+    """In cảnh báo ToS/pháp lý cho nguồn 'shared' — tối đa MỘT lần mỗi tiến trình."""
+    global _shared_warning_shown
+    if _shared_warning_shown:
+        return
+    _shared_warning_shown = True
+    console.print(f"[bold yellow]{SHARED_SOURCE_WARNING}[/bold yellow]")
+
+
 def search_shared_keys(
     query: str, max_results: int = DEFAULT_MAX_RESULTS, timeout: float = DEFAULT_TIMEOUT
 ) -> list[SearchResult]:
@@ -682,9 +737,26 @@ def run_search(
 
     - Dedupe kết quả theo URL (giữ kết quả đầu tiên)
     - Lỗi 1 nguồn không ảnh hưởng nguồn khác
+    - Nguồn 'shared' là OPT-IN ONLY: bị loại trừ khi người dùng chưa chủ động
+      bật (--include-shared / env INCLUDE_SHARED=1) — kể cả khi được yêu cầu
+      tường minh hoặc khi chạy với toàn bộ nguồn mặc định.
     """
+    # 'shared' được yêu cầu tường minh (caller truyền sources) hay chỉ là
+    # phần của mặc định "tất cả"? Chỉ yêu cầu tường minh mới in giải thích.
+    explicit_shared = sources is not None and "shared" in sources
     if sources is None:
         sources = AVAILABLE_SOURCES
+
+    if "shared" in sources and not is_shared_opt_in():
+        sources = [s for s in sources if s != "shared"]
+        if explicit_shared:
+            console.print(
+                "[yellow]⚠ Nguồn 'shared' bị TẮT: nguồn này opt-in only "
+                "(--include-shared hoặc INCLUDE_SHARED=1) vì scrape trang chia sẻ "
+                "API key cộng đồng — rủi ro vi phạm ToS của provider và rủi ro pháp lý.[/yellow]"
+            )
+    elif "shared" in sources and is_shared_opt_in():
+        warn_shared_source()
 
     seen_urls: set[str] = set()
     results: list[SearchResult] = []
