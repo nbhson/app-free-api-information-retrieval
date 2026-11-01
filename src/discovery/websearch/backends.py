@@ -14,6 +14,7 @@ import httpx
 from rich.console import Console
 
 from src.__version__ import __version__
+from src.verification.ssrf import guarded_get
 
 console = Console()
 
@@ -276,8 +277,10 @@ def fetch_masb_shared_keys(timeout: float = DEFAULT_TIMEOUT) -> list[SearchResul
     """
     Scrape ai.masb.web.id — trang cộng đồng Indonesia chia sẻ key/API LLM free.
     Trích xuất mọi endpoint /v1 xuất hiện trong HTML (href, text, JS payload).
+
+    Fetch qua SSRF guard (guarded_get) — redirect giới hạn + re-validate từng hop.
     """
-    resp = httpx.get(_MASB_URL, timeout=timeout, headers=BROWSER_HEADERS, follow_redirects=True)
+    resp = guarded_get(_MASB_URL, timeout=timeout, headers=BROWSER_HEADERS)
     resp.raise_for_status()
     html = resp.text
 
@@ -308,8 +311,10 @@ def fetch_crown_bansos(timeout: float = DEFAULT_TIMEOUT) -> list[SearchResult]:
     Fetch trang crown.ai.id/bansos — trang bansos (bantuan sosial = trợ cấp)
     của Crown AI: nơi phát key free cho cộng đồng. Trích xuất endpoint API
     và hướng dẫn lấy key để đưa vào context cho AI extraction.
+
+    Fetch qua SSRF guard (guarded_get) — redirect giới hạn + re-validate từng hop.
     """
-    resp = httpx.get(CROWN_BANSOS_URL, timeout=timeout, headers=BROWSER_HEADERS, follow_redirects=True)
+    resp = guarded_get(CROWN_BANSOS_URL, timeout=timeout, headers=BROWSER_HEADERS)
     resp.raise_for_status()
     html = resp.text
 
@@ -336,13 +341,10 @@ def fetch_lmspeed_shared_keys(timeout: float = DEFAULT_TIMEOUT) -> list[SearchRe
     """
     Scrape bảng shared keys của LMSpeed — key do cộng đồng submit (bị mask
     nhưng provider + base_url hiển thị công khai trong RSC payload).
+
+    Fetch qua SSRF guard (guarded_get) — redirect giới hạn + re-validate từng hop.
     """
-    resp = httpx.get(
-        LMSPEED_SHARED_KEYS_URL,
-        timeout=timeout,
-        headers=BROWSER_HEADERS,
-        follow_redirects=True,
-    )
+    resp = guarded_get(LMSPEED_SHARED_KEYS_URL, timeout=timeout, headers=BROWSER_HEADERS)
     resp.raise_for_status()
     html = resp.text
 

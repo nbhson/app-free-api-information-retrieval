@@ -17,6 +17,7 @@ from rich.console import Console
 from src.config import AIConfig
 from src.discovery.ai_agent import _extract_json
 from src.models import Provider
+from src.verification.ssrf import SSRFBlockedError, guarded_get
 
 console = Console()
 
@@ -124,19 +125,25 @@ def fetch_page_text(url: str, timeout: float = 15.0, max_chars: int = MAX_PAGE_C
     """
     GET trang, trả về text (đã truncate). Trả '' khi mọi lỗi — caller tự quyết.
     Chỉ chấp nhận content-type text/* và json để tránh tải binary.
+
+    Fetch qua SSRF guard (guarded_get) — URL nguồn websearch tùy ý có thể trỏ
+    internal network: validate từng hop, redirect giới hạn MAX_REDIRECTS.
     """
     try:
-        resp = httpx.get(
+        resp = guarded_get(
             url,
             timeout=timeout,
             headers={"User-Agent": "free-llm-provider-discovery"},
-            follow_redirects=True,
         )
         resp.raise_for_status()
         content_type = resp.headers.get("content-type", "")
         if "text/" not in content_type and "json" not in content_type:
             return ""
         return resp.text[:max_chars]
+    except SSRFBlockedError as e:
+        # URL bị guard chặn (private IP/scheme lạ) — không fetch, ghi rõ lý do
+        console.print(f"[yellow]⚠ SSRF guard chặn {url}: {e}[/yellow]")
+        return ""
     except Exception as e:  # noqa: BLE001 — 1 trang lỗi không được chặn pipeline
         console.print(f"[yellow]⚠ Không fetch được {url}: {e}[/yellow]")
         return ""

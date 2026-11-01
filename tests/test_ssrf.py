@@ -124,6 +124,84 @@ class TestValidateUrl:
             validate_url("https://nonexistent.invalid/v1/models")
 
 
+# ─── guarded_get — GET sync dùng chung cho fetch URL nguồn web ───
+
+
+def _patch_httpx_get(monkeypatch, handler) -> dict:
+    """Thay httpx.get bằng client MockTransport; trả về counter số request."""
+    calls = {"n": 0}
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+
+    def fake_get(url, **kw):
+        calls["n"] += 1
+        return client.get(url, **kw)
+
+    monkeypatch.setattr("httpx.get", fake_get)
+    return calls
+
+
+class TestGuardedGet:
+    def test_public_url_passes(self, monkeypatch):
+        calls = _patch_httpx_get(
+            monkeypatch, lambda request: httpx.Response(200, text="ok")
+        )
+        resp = ssrf.guarded_get("https://api.example.com/v1/models", timeout=1.0)
+        assert resp.status_code == 200
+        assert resp.text == "ok"
+        assert calls["n"] == 1
+
+    def test_private_ip_blocked_before_request(self, monkeypatch):
+        calls = _patch_httpx_get(
+            monkeypatch, lambda request: httpx.Response(200, text="secret")
+        )
+        with pytest.raises(SSRFBlockedError, match="private"):
+            ssrf.guarded_get("http://169.254.169.254/latest/meta-data/", timeout=1.0)
+        assert calls["n"] == 0  # không request nào ra khỏi guard
+
+    def test_hostname_resolving_private_blocked(self, monkeypatch):
+        monkeypatch.setattr(ssrf, "resolve_hostname", lambda host: ["127.0.0.1"])
+        calls = _patch_httpx_get(
+            monkeypatch, lambda request: httpx.Response(200, text="secret")
+        )
+        with pytest.raises(SSRFBlockedError, match="127.0.0.1"):
+            ssrf.guarded_get("https://internal-service.example.com/v1", timeout=1.0)
+        assert calls["n"] == 0
+
+    def test_redirect_followed_within_limit(self, monkeypatch):
+        calls = _patch_httpx_get(
+            monkeypatch,
+            lambda request: httpx.Response(302, headers={"Location": "/final"})
+            if request.url.path == "/start"
+            else httpx.Response(200, text="done"),
+        )
+        resp = ssrf.guarded_get("https://api.example.com/start", timeout=1.0)
+        assert resp.status_code == 200
+        assert calls["n"] == 2
+
+    def test_redirect_to_private_ip_blocked(self, monkeypatch):
+        """Redirect trỏ về IP private/metadata → chặn ở hop 2, không fetch."""
+        calls = _patch_httpx_get(
+            monkeypatch,
+            lambda request: httpx.Response(
+                302, headers={"Location": "http://169.254.169.254/latest/meta-data/"}
+            ),
+        )
+        with pytest.raises(SSRFBlockedError, match="private"):
+            ssrf.guarded_get("https://evil-redirect.example.com/start", timeout=1.0)
+        assert calls["n"] == 1  # chỉ hop gốc được gửi
+
+    def test_too_many_redirects_blocked(self, monkeypatch):
+        calls = _patch_httpx_get(
+            monkeypatch,
+            lambda request: httpx.Response(
+                302, headers={"Location": "https://api.example.com/loop"}
+            ),
+        )
+        with pytest.raises(SSRFBlockedError, match="redirects"):
+            ssrf.guarded_get("https://api.example.com/loop", timeout=1.0)
+        assert calls["n"] == ssrf.MAX_REDIRECTS + 1  # 1 hop gốc + 3 redirect, không hơn
+
+
 # ─── Tích hợp với checker.verify_provider ───
 
 

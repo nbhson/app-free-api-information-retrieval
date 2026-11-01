@@ -26,7 +26,7 @@ from pydantic import ValidationError
 
 from src.__version__ import __version__
 from src.models import Model, Provider, ProviderStatus
-from src.verification.ssrf import SSRFBlockedError, validate_url
+from src.verification.ssrf import MAX_REDIRECTS, SSRFBlockedError, validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class SmokeTestError(Exception):
 MAX_CONCURRENCY = 5
 
 # Số redirect tối đa khi verify (mỗi hop được re-validate SSRF guard)
-MAX_REDIRECTS = 3
+# — định nghĩa dùng chung tại src/verification/ssrf.py:MAX_REDIRECTS (đã import)
 
 # Retry cho lỗi tạm thời (timeout, connect, 429, 5xx)
 MAX_RETRIES = 2

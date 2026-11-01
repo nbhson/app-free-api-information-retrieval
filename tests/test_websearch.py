@@ -505,6 +505,54 @@ class TestFetchPageText:
         monkeypatch.setattr("httpx.get", fake_get)
         assert fetch_page_text("https://dead.example.com", timeout=1.0) == ""
 
+    def test_private_ip_blocked(self, monkeypatch):
+        """URL trỏ IP private/metadata → SSRF guard chặn, không fetch, trả ''."""
+        sent = []
+
+        def fake_get(url, **kw):
+            sent.append(url)
+            return _fake_html_resp("<html>secret</html>")
+
+        monkeypatch.setattr("httpx.get", fake_get)
+        assert fetch_page_text("http://127.0.0.1:8000/api/v1", timeout=1.0) == ""
+        assert sent == []  # không request nào ra khỏi guard
+
+    def test_hostname_resolving_private_blocked(self, monkeypatch):
+        """Hostname websearch resolve về IP private → chặn, trả '' (không crash)."""
+        from src.verification import ssrf
+
+        monkeypatch.setattr(ssrf, "resolve_hostname", lambda host: ["10.0.0.5"])
+
+        def fake_get(url, **kw):
+            raise AssertionError("không được fetch khi guard chặn")
+
+        monkeypatch.setattr("httpx.get", fake_get)
+        assert fetch_page_text("https://internal-service.example.com/v1", timeout=1.0) == ""
+
+    def test_valid_url_still_fetched(self, monkeypatch):
+        """URL public hợp lệ vẫn fetch bình thường qua guard (mock DNS trả IP public)."""
+        monkeypatch.setattr("httpx.get", lambda url, **kw: _fake_html_resp("<html>ok</html>"))
+        assert fetch_page_text("https://public-provider.example.com/pricing", timeout=1.0) == "<html>ok</html>"
+
+    def test_redirect_to_private_blocked_returns_empty(self, monkeypatch):
+        """Redirect trỏ về IP private → guard chặn ở hop 2, trả ''."""
+        client = httpx.Client(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    302, headers={"Location": "http://169.254.169.254/latest/meta-data/"}
+                )
+            )
+        )
+        sent = []
+
+        def fake_get(url, **kw):
+            sent.append(url)
+            return client.get(url, **kw)
+
+        monkeypatch.setattr("httpx.get", fake_get)
+        assert fetch_page_text("https://evil-redirect.example.com/page", timeout=1.0) == ""
+        assert len(sent) == 1  # chỉ hop gốc, hop redirect bị chặn
+
 
 class TestIsBlocked:
     def test_subdomain_blocked(self):
@@ -1181,6 +1229,42 @@ class TestSharedKeysSource:
         assert "https://api.masb-shared.ai/v1" in urls
         assert "https://pool.indo-ai.web.id/v1" in urls
         assert not any("masb.web.id" in u for u in urls)  # chính trang bị loại
+
+    def test_shared_keys_fetch_redirect_to_private_blocked(self, monkeypatch):
+        """Trang chia sẻ key redirect về IP private → SSRF guard chặn (graceful [])."""
+        from src.discovery.websearch import backends
+        from src.verification.ssrf import SSRFBlockedError
+
+        client = httpx.Client(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    302, headers={"Location": "http://192.168.1.1/admin"}
+                )
+            )
+        )
+        sent = []
+
+        def fake_get(url, **kw):
+            sent.append(url)
+            return client.get(url, **kw)
+
+        monkeypatch.setattr("httpx.get", fake_get)
+        with pytest.raises(SSRFBlockedError):
+            backends.fetch_masb_shared_keys(timeout=1.0)
+        assert len(sent) == 1  # chỉ hop gốc, redirect bị chặn
+
+        # Qua search_shared_keys (bọc try/except) → nguồn lỗi bị bỏ qua, không crash
+        results = backends.search_shared_keys("q", max_results=10, timeout=1.0)
+        assert results == []
+
+    def test_shared_keys_valid_page_still_fetched(self, monkeypatch):
+        """Trang hợp lệ (DNS mock trả IP public) vẫn scrape được key qua guard."""
+        from src.discovery.websearch.backends import fetch_crown_bansos
+
+        html = '<html>Ambil key gratis: <a href="https://api.pool-valid.id/v1">link</a></html>'
+        monkeypatch.setattr("httpx.get", lambda url, **kw: _fake_html_resp(html))
+        results = fetch_crown_bansos(timeout=1.0)
+        assert [r.url for r in results] == ["https://api.pool-valid.id/v1"]
 
     def test_shared_keys_includes_bansos_and_masb(self, monkeypatch):
         """search_shared_keys giờ gồm 4 nguồn: crown status + lmspeed + bansos + masb."""

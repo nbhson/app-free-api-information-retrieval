@@ -20,6 +20,8 @@ import socket
 from collections.abc import Callable
 from urllib.parse import urlparse
 
+import httpx
+
 
 class SSRFBlockedError(Exception):
     """URL bị chặn bởi SSRF guard (scheme/hostname/IP không hợp lệ)."""
@@ -117,3 +119,43 @@ def validate_url(url: str, resolver: Callable[[str], list[str]] | None = None) -
             raise SSRFBlockedError(f"Blocked: {host} resolve tới IP private {addr}")
 
     return url
+
+
+# Số redirect tối đa khi fetch URL nguồn web tùy ý — mỗi hop được re-validate
+MAX_REDIRECTS = 3
+
+
+def guarded_get(
+    url: str,
+    timeout: float = 15.0,
+    headers: dict[str, str] | None = None,
+    max_redirects: int = MAX_REDIRECTS,
+) -> httpx.Response:
+    """
+    GET sync với SSRF guard — dùng chung cho mọi fetch URL nguồn web extraction
+    (websearch backends, page extractor). Phiên bản sync của checker._get_guarded.
+
+    Validate URL ở MỖI hop (scheme/hostname/IP) và follow redirect thủ công tối
+    đa `max_redirects` thay vì follow_redirects=True — chống redirect trick trỏ
+    về internal network/metadata.
+
+    Raises:
+        SSRFBlockedError: URL (hoặc đích redirect) vi phạm SSRF guard, hoặc
+            quá nhiều redirects.
+        httpx.HTTPError: lỗi network/HTTP từ tầng httpx (caller tự xử lý).
+    """
+    current = url
+    for hop in range(max_redirects + 1):
+        validate_url(current)
+        resp = httpx.get(current, timeout=timeout, headers=headers, follow_redirects=False)
+        # getattr defensive: fake response trong test không có is_redirect — coi như không redirect
+        is_redirect = getattr(resp, "is_redirect", False) and getattr(
+            resp, "has_redirect_location", False
+        )
+        if is_redirect:
+            if hop == max_redirects:
+                raise SSRFBlockedError(f"Quá nhiều redirects (> {max_redirects})")
+            current = str(httpx.URL(current).join(resp.headers["location"]))
+            continue
+        return resp
+    raise SSRFBlockedError(f"Quá nhiều redirects (> {max_redirects})")  # pragma: no cover
