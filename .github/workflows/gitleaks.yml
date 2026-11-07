@@ -16,6 +16,6 @@ jobs:
           fetch-depth: 0 # full history để quét toàn bộ commit
 
       - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
